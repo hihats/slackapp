@@ -8,26 +8,6 @@ from slack_sdk.errors import SlackApiError
 import time
 import random
 
-def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
-    """レート制限に対応するためのラッパー関数"""
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except SlackApiError as e:
-            if e.response["error"] == "ratelimited":
-                if attempt == max_retries - 1:
-                    print(f"最大再試行回数に達しました: {e}")
-                    raise
-                
-                # 指数バックオフ + ジッター
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                print(f"レート制限に達しました。{delay:.2f}秒待機します... (試行 {attempt + 1}/{max_retries})")
-                time.sleep(delay)
-            else:
-                raise
-    
-    return None
-
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description='私がリアクションをつけたSlackの投稿を全て取得します\n'
@@ -52,24 +32,6 @@ def get_user_id(client):
     except SlackApiError as e:
         print(f"ユーザーID取得エラー: {e}")
         return None
-
-def get_channels(client):
-    """チャンネル一覧を取得"""
-    channels = []
-    try:
-        # パブリックチャンネル
-        response = handle_rate_limit(
-            client.conversations_list,
-            types="public_channel,private_channel",
-            base_delay=1
-        )
-        if response:
-            channels.extend(response["channels"])
-        
-        return channels
-    except SlackApiError as e:
-        print(f"チャンネル取得エラー: {e}")
-        return []
 
 # https://api.slack.com/methods/reactions.list
 def get_my_reactions_list(client, user_id, oldest_timestamp, reaction_type=None):
@@ -134,21 +96,6 @@ def get_my_reactions_list(client, user_id, oldest_timestamp, reaction_type=None)
         print(f"リアクション履歴取得エラー: {e}")
     
     return reactions
-
-def get_channel_info(client, channel_id):
-    """チャンネル情報を取得"""
-    try:
-        response = handle_rate_limit(
-            client.conversations_info,
-            channel=channel_id,
-            base_delay=1
-        )
-        if response and response["ok"]:
-            return response["channel"]
-    except SlackApiError as e:
-        print(f"チャンネル情報取得エラー: {e}")
-    
-    return None
 
 def format_reaction_based_post_data(channel_id, message_data, user_id):
     """reactions.listから取得したデータを直接使用してフォーマット（channel_idのみ使用）"""
