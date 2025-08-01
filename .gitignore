@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# 辞書ファイル
+dict.csv
+
+# 出力ディレクトリ
+output/
+
+# Environment variables
+.env
+.envrc
+
+# Claude AI設定ディレクトリ
+.claude/ 
+# JSON data files (contains sensitive information)
+*.json 
