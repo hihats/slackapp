@@ -40,14 +40,13 @@ def get_my_reactions_list(client, user_id, oldest_timestamp, reaction_type=None)
     try:
         cursor = None
         while True:
-            print(f"cursor: {cursor}")
-            
             # cursorベースのページネーション（正しいパラメータ名を使用）
             params = {
                 "user": user_id,
                 "limit": 200  # countではなくlimitを使用、推奨値の200
             }
             if cursor:
+                print(f"cursor: {cursor}")
                 params["cursor"] = cursor
                 
             response = client.reactions_list(**params)
@@ -90,14 +89,25 @@ def get_my_reactions_list(client, user_id, oldest_timestamp, reaction_type=None)
                 break
             
             cursor = next_cursor
-            time.sleep(3)  # APIレート制限対策 Tier2 の場合は 3秒待つ
+            time.sleep(60)  # APIレート制限対策 2025年新制限対応で60秒待つ
             
     except SlackApiError as e:
         print(f"リアクション履歴取得エラー: {e}")
     
     return reactions
 
-def format_reaction_based_post_data(channel_id, message_data, user_id):
+def get_user_info(client, user_id):
+    """ユーザー情報を取得"""
+    try:
+        response = client.users_info(user=user_id)
+        if response and response["ok"]:
+            return response["user"]
+    except SlackApiError as e:
+        print(f"ユーザー情報取得エラー ({user_id}): {e}")
+    
+    return None
+
+def format_reaction_based_post_data(channel_id, message_data, user_id, author_user_info=None):
     """reactions.listから取得したデータを直接使用してフォーマット（channel_idのみ使用）"""
     # message内のreactionsから自分のリアクションを抽出
     my_reactions = []
@@ -106,13 +116,18 @@ def format_reaction_based_post_data(channel_id, message_data, user_id):
             if user_id in reaction["users"]:
                 my_reactions.append(reaction["name"])
     
+    # ユーザー名を取得（author_user_infoが提供されている場合）
+    user_name = ""
+    if author_user_info:
+        user_name = author_user_info.get("display_name") or author_user_info.get("real_name", "")
+    
     return {
         "channel_id": channel_id,
         "channel_name": channel_id,  # channel_idをそのまま使用
         "timestamp": message_data["ts"],
         "datetime": datetime.fromtimestamp(float(message_data["ts"])).strftime("%Y-%m-%d %H:%M:%S"),
         "text": message_data.get("text", ""),
-        "user_name": message_data.get("username", ""),
+        "user_name": user_name,
         "my_reactions": my_reactions,
         "permalink": f"https://slack.com/app_redirect?channel={channel_id}&message_ts={message_data['ts']}"
     }
@@ -193,11 +208,19 @@ def main():
         # reactions.listから直接メッセージ情報を取得
         message_data = reaction_item["message"]
         
+        # 投稿者の情報を取得
+        author_user_id = message_data.get("user", "")
+        author_user_info = None
+        if author_user_id:
+            author_user_info = get_user_info(client, author_user_id)
+            time.sleep(5)  # users.info APIのレート制限対策
+        
         # 投稿データをフォーマット
         post_data = format_reaction_based_post_data(
             channel_id, 
             message_data,
-            user_id
+            user_id,
+            author_user_info
         )
         
         posts_data.append(post_data)
