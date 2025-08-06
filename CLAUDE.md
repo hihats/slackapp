@@ -73,6 +73,7 @@ docker run --volume $PWD:/app slackapp message_reactions.py --token $SLACK_TOKEN
 
 For Slack API development, always refer to the official API documentation:
 - **Web API Methods**: https://api.slack.com/methods
+- **Application List**: https://api.slack.com/apps/
 - Use this as the primary reference for all Slack API endpoints, parameters, and response formats
 
 #### Message Timestamp Format
