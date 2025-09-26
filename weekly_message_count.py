@@ -93,8 +93,8 @@ def search_messages_with_api(client: WebClient, channel_id: str, keyword: str, d
             # 次のページがあるか確認（page-based pagination）
             if current_page < page_count:
                 page += 1
-                # APIレート制限対策として少し待機
-                time.sleep(1)
+                # APIレート制限対策として少し待機（Tier 3: 50リクエスト/分）
+                time.sleep(1.5)
             else:
                 has_more = False
                 
