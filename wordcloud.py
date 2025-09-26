@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 import MeCab
 from collections import Counter
-import datetime
+from datetime import datetime, timedelta, timezone
 import numpy as np
 from PIL import Image
 import time
@@ -31,7 +31,7 @@ def get_messages(client, channel_id, keyword, days_ago):
     all_messages = []
     
     # 検索対象の期間を設定
-    oldest_time = (datetime.datetime.now() - datetime.timedelta(days=days_ago)).timestamp()
+    oldest_time = (datetime.now(timezone.utc) - timedelta(days=days_ago)).timestamp()
     
     try:
         # ページネーション処理を追加
@@ -69,8 +69,8 @@ def get_messages(client, channel_id, keyword, days_ago):
             pagination = result["messages"]["pagination"]
             if pagination["page"] < pagination["page_count"]:
                 page += 1
-                # APIレート制限に配慮して少し待機
-                time.sleep(1)
+                # APIレート制限に配慮して少し待機（Tier 3: 50リクエスト/分）
+                time.sleep(1.5)
             else:
                 has_more = False
         
