@@ -5,7 +5,7 @@ __pycache__/
 dict.csv
 
 # 出力ディレクトリ
-output/
+outputs/
 
 # Environment variables
 .env
@@ -14,4 +14,4 @@ output/
 # Claude AI設定ディレクトリ
 .claude/commands/
 # JSON data files (contains sensitive information)
-*.json 
+.cluade/settings.local.json
