@@ -71,7 +71,7 @@ def get_user_channels(client, user_id):
                 break
             
             cursor = next_cursor
-            time.sleep(5)  # APIレート制限対策
+            time.sleep(3)  # conversations.info APIのレート制限対策（Tier 2: 20リクエスト/分）
         
         print(f"合計 {len(channels)} 個のチャンネルが見つかりました")
         
