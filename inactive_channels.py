@@ -2,9 +2,12 @@ import os
 import argparse
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+# 定数定義
+INACTIVE_THRESHOLD_DAYS = 365  # 非アクティブと判定する日数
 
 def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
     """レート制限に対応するためのラッパー関数"""
@@ -29,7 +32,7 @@ def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='最終投稿が365日以上前のチャンネルを抽出します。',
+        description=f'最終投稿が{INACTIVE_THRESHOLD_DAYS}日以上前のチャンネルを抽出します。',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--token', type=str, required=True, help='Slack APIトークン')
@@ -99,8 +102,8 @@ def get_channel_last_message_time(client, channel_id):
             return None
 
 def check_inactive_channels(client, channels):
-    """365日以上非アクティブなチャンネルをチェック"""
-    cutoff_date = datetime.now() - timedelta(days=365)
+    """指定日数以上非アクティブなチャンネルをチェック"""
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=INACTIVE_THRESHOLD_DAYS)
     print(f"基準日: {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')} より古いチャンネルを検索中...")
     
     inactive_channels = []
@@ -121,7 +124,7 @@ def check_inactive_channels(client, channels):
         print(f"    最終投稿: {last_message_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         if last_message_time < cutoff_date:
-            days_since_last_post = (datetime.now() - last_message_time).days
+            days_since_last_post = (datetime.now(timezone.utc) - last_message_time).days
             
             inactive_channel_info = {
                 "id": channel_id,
@@ -138,18 +141,18 @@ def check_inactive_channels(client, channels):
             inactive_channels.append(inactive_channel_info)
             print(f"    ✓ 非アクティブ（{days_since_last_post} 日前）")
         else:
-            print(f"    アクティブ（{(datetime.now() - last_message_time).days} 日前）")
+            print(f"    アクティブ（{(datetime.now(timezone.utc) - last_message_time).days} 日前）")
         
-        # APIレート制限対策
-        time.sleep(5)
+        # APIレート制限対策（conversations.history API - Tier 3: 50リクエスト/分）
+        time.sleep(1.5)
     
     return inactive_channels
 
 def save_results_to_json(inactive_channels, filename):
     """結果をJSONファイルに保存"""
     output_data = {
-        "analysis_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "threshold_days": 365,
+        "analysis_date": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+        "threshold_days": INACTIVE_THRESHOLD_DAYS,
         "total_inactive_channels": len(inactive_channels),
         "inactive_channels": inactive_channels
     }
@@ -208,7 +211,7 @@ def main():
             print()
         
     else:
-        print(f"\n365日以上非アクティブなチャンネルは見つかりませんでした")
+        print(f"\n{INACTIVE_THRESHOLD_DAYS}日以上非アクティブなチャンネルは見つかりませんでした")
     
     # 実行時間を表示
     total_time = time.time() - script_start_time
