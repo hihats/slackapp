@@ -63,15 +63,41 @@ docker run --volume $PWD:/app slackapp get_all_channels.py --token $SLACK_TOKEN 
 docker run --volume $PWD:/app slackapp inactive_channels.py --token $SLACK_TOKEN --channels-json outputs/inactive_channels.json --output outputs/inactive_channels_$(date +%Y%m%d).json
 ```
 
+### Finding Unanswered Mentions
+
+Find messages where a specific user was mentioned but hasn't responded:
+
+```bash
+# Traditional method (channel-by-channel search)
+docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOKEN --mentioned-user $SLACK_USER_ID --days 30 --output outputs/unanswered_mentions_$(date +%Y%m%d).json
+
+# High-speed method using Search API (requires search:read scope)
+docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOKEN --mentioned-user $SLACK_USER_ID --days 30 --output outputs/unanswered_mentions_$(date +%Y%m%d).json --use-search-api
+
+# Search in specific channel only
+docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOKEN --mentioned-user $SLACK_USER_ID --channel $CHANNEL_ID --days 7 --output outputs/unanswered_mentions_$(date +%Y%m%d).json --use-search-api
+```
+
+### Weekly Message Count
+
+Count messages containing specific keywords in a channel and aggregate by week:
+
+```bash
+# Count messages with specific keyword using Search API (requires search:read scope)
+docker run --volume $PWD:/app slackapp weekly_message_count.py --token $SLACK_TOKEN --channel $CHANNEL_ID --keyword "検索文言" --days 30 --output outputs/weekly_count_$(date +%Y%m%d).json
+```
+
 ### Available Command Line Arguments
 
 - `--token`: Slack API token (required)
-- `--channel`: Slack channel ID to search (required for wordcloud, message_reactions)
+- `--channel`: Slack channel ID to search (required for wordcloud, message_reactions, weekly_message_count; optional for unanswered_mentions)
 - `--user`: Slack user ID (required for get_all_channels)
+- `--mentioned-user`: Slack user ID to search for mentions of (required for unanswered_mentions)
 - `--channels-json`: Path to all_channels.json file (required for inactive_channels)
-- `--keyword`: Search keyword (required for wordcloud)
+- `--keyword`: Search keyword (required for wordcloud, weekly_message_count)
 - `--days`: Number of days to search back (default: 30)
 - `--output`: Output filename (must include outputs/ directory path, e.g., outputs/filename.json)
+- `--use-search-api`: Use search.messages API for faster cross-channel search (requires search:read scope)
 - `--limit`: Maximum number of channels to process (optional, for testing)
 - `--stopwords`: Path to stopwords file (optional)
 - `--min_freq`: Minimum word frequency to include (default: 2)
@@ -98,6 +124,36 @@ When using message timestamps as arguments in Slack API calls, ensure proper for
 - Message timestamps must include a period (.) between the 6th and 7th digits from the right
 - Example: `1234567890.123456` (not `1234567890123456`)
 - This format represents Unix timestamp with microsecond precision
+
+#### Using the Search API (--use-search-api)
+
+The `--use-search-api` option enables high-speed cross-channel search using Slack's `search.messages` API:
+
+**Requirements:**
+- User token (not bot token) with `search:read` scope
+- Slack app with search permissions enabled
+
+**Benefits:**
+- 🚀 **Significantly faster**: Single API call vs. multiple channel-by-channel calls
+- 📈 **Scales better**: Performance independent of channel count
+- 🎯 **More accurate**: Uses Slack's native search engine
+- 📋 **No setup required**: No need for all_channels.json file
+- 🔍 **Auto-discovery**: Automatically finds all accessible channels
+
+**Limitations:**
+- 📋 **Token scope**: Requires `search:read` scope (not available for all token types)
+- 🏢 **Enterprise restrictions**: Some enterprise workspaces may limit search functionality
+- 🔍 **Search syntax**: Uses Slack's search query format
+
+**Troubleshooting:**
+- If you get `missing_scope` error, ensure your token has `search:read` scope
+- If search returns no results, try the traditional method without `--use-search-api`
+- For large workspaces, search API may have different rate limits
+
+**Query Examples:**
+- `<@U123456> after:2024-01-01`: Mentions of user after specific date
+- `<@U123456> in:C789012`: Mentions in specific channel
+- `<@U123456> after:2024-01-01 in:C789012`: Combined filters
 
 ### Key Functions
 
@@ -200,3 +256,42 @@ This process ensures that the developed scripts meet the actual needs and preven
    - When modifying existing code, consider refactoring if `main()` becomes too complex
    - Extract repeated code into utility functions
    - Group related functionality into logical modules
+
+## Usage Examples
+
+### Complete Workflow: Finding Unanswered Mentions
+
+#### Option A: Using Search API (Recommended)
+
+**No preparation needed!** Search API finds all accessible channels automatically:
+
+```bash
+# Direct execution - no all_channels.json required
+docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOKEN --mentioned-user $SLACK_USER_ID --days 30 --output outputs/unanswered_mentions_$(date +%Y%m%d).json --use-search-api
+```
+
+#### Option B: Traditional Method (Requires Setup)
+
+1. **First, get all channels**:
+```bash
+docker run --volume $PWD:/app slackapp get_all_channels.py --token $SLACK_TOKEN --user $SLACK_USER_ID --output outputs/all_channels.json
+```
+
+2. **Then find unanswered mentions**:
+```bash
+docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOKEN --mentioned-user $SLACK_USER_ID --days 30 --output outputs/unanswered_mentions_$(date +%Y%m%d).json
+```
+
+### Performance Comparison
+
+**Search API method (`--use-search-api`):**
+- ⚡ Single search query across all channels
+- 🚀 Typical execution: 1-3 minutes for large workspaces
+- 📊 Handles 100+ channels efficiently
+
+**Traditional method (without flag):**
+- 🔄 Channel-by-channel search
+- ⏰ Typical execution: 10-60 minutes for large workspaces
+- 📈 Time scales linearly with channel count
+
+**Recommendation:** Always try `--use-search-api` first. Fall back to traditional method only if you encounter scope or permission issues.
