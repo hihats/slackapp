@@ -2,7 +2,7 @@ import os
 import argparse
 import json
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import time
@@ -170,7 +170,7 @@ def main():
     print(f"ユーザーID: {user_id}")
     
     # 検索期間を設定
-    oldest_time = datetime.now() - timedelta(days=args.days)
+    oldest_time = datetime.now(timezone.utc) - timedelta(days=args.days)
     oldest_timestamp = oldest_time.timestamp()
     
     print(f"検索期間: {oldest_time.strftime('%Y-%m-%d %H:%M:%S')} から現在まで")
@@ -213,7 +213,7 @@ def main():
         author_user_info = None
         if author_user_id:
             author_user_info = get_user_info(client, author_user_id)
-            time.sleep(5)  # users.info APIのレート制限対策
+            time.sleep(1)  # users.info APIのレート制限対策（Tier 4: 100リクエスト/分）
         
         # 投稿データをフォーマット
         post_data = format_reaction_based_post_data(
