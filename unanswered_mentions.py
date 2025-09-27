@@ -509,7 +509,7 @@ def search_mentions_by_channel(client, channels, mentioned_user_id, days, mentio
                 )
                 channel_unanswered.append(formatted_message)
             
-            time.sleep(2)  # conversations.list APIのレート制限対策（Tier 2: 20リクエスト/分）
+            time.sleep(3)  # conversations.list APIのレート制限対策（Tier 2: 20リクエスト/分）
         
         all_unanswered_messages.extend(channel_unanswered)
         print(f"  未回答メッセージ: {len(channel_unanswered)}件")
