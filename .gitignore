@@ -12,6 +12,6 @@ output/
 .envrc
 
 # Claude AI設定ディレクトリ
-.claude/ 
+.claude/commands/
 # JSON data files (contains sensitive information)
 *.json 
