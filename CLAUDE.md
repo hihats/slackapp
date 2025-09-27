@@ -295,3 +295,72 @@ docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOK
 - 📈 Time scales linearly with channel count
 
 **Recommendation:** Always try `--use-search-api` first. Fall back to traditional method only if you encounter scope or permission issues.
+
+## Slack API Rate Limits
+
+### Rate Limit Tiers
+
+Slack Web API methods are categorized into 4 rate limit tiers:
+
+| Tier | Requests/minute | Required interval | Safe interval |
+|------|-----------------|-------------------|---------------|
+| **Tier 1** | 1+ | 60 seconds | 60 seconds |
+| **Tier 2** | 20+ | 3 seconds | 3 seconds |
+| **Tier 3** | 50+ | 1.2 seconds | 1.5 seconds |
+| **Tier 4** | 100+ | 0.6 seconds | 1 second |
+
+### API Methods and Their Tiers
+
+Based on our implementation and testing, the following rate limits apply:
+
+| API Method | Tier | Current Sleep | Notes |
+|------------|------|---------------|-------|
+| **reactions.list** | Special | 60s | 2025 new limit: 1 request/minute for non-Marketplace apps |
+| **conversations.list** | Tier 2 | 3s | Documented example in Slack docs |
+| **conversations.info** | Tier 2 | 3s | Based on observed behavior |
+| **conversations.history** | Tier 3 | 1.5s | High-frequency method |
+| **conversations.replies** | Tier 3 | 1.5s | Thread retrieval |
+| **search.messages** | Tier 3 | 1.5s | Search API endpoint |
+| **users.info** | Tier 4 | 1s | User profile lookups |
+
+### Special Rate Limits
+
+#### reactions.list (2025 Update)
+- **Old limit**: Standard tier-based limiting
+- **New limit (2025/01/02)**: 1 request per minute, max 15 objects per request
+- **Applies to**: Non-Marketplace apps
+- **Exception**: Apps created before 2024/05/29 maintain old limits
+- **Required action**: Use 60-second delays between requests
+
+### Rate Limit Handling Best Practices
+
+1. **Use handle_rate_limit wrapper**: Implements exponential backoff with retry logic
+2. **Check for rate_limited errors**: Honor the `retry_after` value in error responses
+3. **Batch operations when possible**: Reduce total API calls
+4. **Use appropriate delays**: Follow the tier-based intervals above
+5. **Monitor for changes**: Slack may update rate limits with notice
+
+### Implementation Example
+
+```python
+def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
+    """Rate limit handling with exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except SlackApiError as e:
+            if e.response["error"] == "rate_limited":
+                retry_after = int(e.response.get("headers", {}).get("Retry-After", base_delay))
+                print(f"Rate limited. Retrying after {retry_after} seconds...")
+                time.sleep(retry_after)
+            else:
+                raise
+    raise Exception(f"Failed after {max_retries} retries")
+```
+
+### Troubleshooting Rate Limits
+
+- **internal_error**: Often indicates rate limit violation, especially with cursor-based pagination
+- **rate_limited**: Explicit rate limit error with `retry_after` header
+- **missing_scope**: Check token permissions, not a rate limit issue
+- **invalid_cursor**: May occur after rate limiting disrupts pagination state
