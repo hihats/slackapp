@@ -1,0 +1,123 @@
+name: Check CLAUDE.md Size
+
+on:
+  push:
+    paths:
+      - 'CLAUDE.md'
+      - 'scripts/check-claude-md.sh'
+      - '.github/workflows/check-claude-md.yml'
+  pull_request:
+    paths:
+      - 'CLAUDE.md'
+
+jobs:
+  check-documentation-size:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Check CLAUDE.md line count
+        id: check_lines
+        run: |
+          # Make the script executable
+          chmod +x scripts/check-claude-md.sh
+
+          # Run the shared script in non-interactive mode
+          ./scripts/check-claude-md.sh --non-interactive
+
+          # Capture exit code
+          EXIT_CODE=$?
+
+          # Generate summary based on exit code
+          if [ -f "CLAUDE.md" ]; then
+            LINES=$(wc -l < CLAUDE.md)
+            USAGE=$((LINES * 100 / 500))
+
+            echo "## 📋 CLAUDE.md Documentation Check" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ $EXIT_CODE -eq 2 ]; then
+              # Warning state
+              echo "⚠️ **Warning**: CLAUDE.md has **$LINES lines** (recommended: ≤500)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 📝 Consider splitting the documentation:" >> $GITHUB_STEP_SUMMARY
+              echo "- \`API_GUIDELINES.md\`: API-related details" >> $GITHUB_STEP_SUMMARY
+              echo "- \`DEVELOPMENT_GUIDE.md\`: Development process guidelines" >> $GITHUB_STEP_SUMMARY
+              echo "- Extract less frequently used sections" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **CLAUDE.md**: $LINES lines (within recommended limit)" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📈 Growth tracking:" >> $GITHUB_STEP_SUMMARY
+            echo "- Current: $LINES lines" >> $GITHUB_STEP_SUMMARY
+            echo "- Limit: 500 lines" >> $GITHUB_STEP_SUMMARY
+            echo "- Usage: ${USAGE}%" >> $GITHUB_STEP_SUMMARY
+
+            # Output for other steps
+            echo "lines=$LINES" >> $GITHUB_OUTPUT
+            echo "usage=$USAGE" >> $GITHUB_OUTPUT
+
+            if [ $EXIT_CODE -eq 2 ]; then
+              echo "status=warning" >> $GITHUB_OUTPUT
+            else
+              echo "status=ok" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+          # Don't fail the workflow for warnings
+          exit 0
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.check_lines.outputs.status == 'warning'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const lines = '${{ steps.check_lines.outputs.lines }}';
+            const usage = '${{ steps.check_lines.outputs.usage }}';
+            const body = `## ⚠️ CLAUDE.md Size Warning
+
+            The \`CLAUDE.md\` file has grown to **${lines} lines** (${usage}% of recommended limit).
+
+            **Recommended actions:**
+            - Consider splitting into \`API_GUIDELINES.md\` for API-related information
+            - Extract development guidelines to \`DEVELOPMENT_GUIDE.md\`
+            - Move less frequently used sections to separate files
+
+            You can still merge this PR, but please plan for documentation refactoring soon.
+
+            ---
+            *This check is performed by \`scripts/check-claude-md.sh\`*`;
+
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('CLAUDE.md Size Warning')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
