@@ -10,7 +10,8 @@ import time
 def parse_arguments():
     parser = argparse.ArgumentParser(description='特定のチャンネルの指定した日付の投稿とスレッドを全て取得します')
     parser.add_argument('--channel', type=str, required=True, help='チャンネルID')
-    parser.add_argument('--date', type=str, required=True, help='取得する日付 (YYYY-MM-DD形式)')
+    parser.add_argument('--date', type=str, help='取得する日付 (YYYY-MM-DD形式)')
+    parser.add_argument('--days', type=int, help='今日からN日前までの期間を取得')
     parser.add_argument('--output', type=str, default='channel_daily_posts.json', help='出力ファイル名（デフォルト: channel_daily_posts.json）')
     parser.add_argument('--format', type=str, choices=['json', 'csv'], default='json', help='出力形式（json または csv）')
     parser.add_argument('--include-threads', action='store_true', default=True, help='スレッドも含めて取得する')
@@ -38,6 +39,13 @@ def parse_date(date_str):
     except ValueError:
         print(f"エラー: 日付形式が正しくありません。YYYY-MM-DD形式で入力してください: {date_str}")
         return None, None
+
+def parse_days(days):
+    """N日前から今日までの開始・終了タイムスタンプを返す"""
+    today = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+    start = (datetime.now() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.timestamp(), today.timestamp()
+
 
 def get_channel_info(client, channel_id):
     """チャンネル情報を取得"""
@@ -204,23 +212,38 @@ def main():
     if not token:
         return
     
-    # 日付をパース
-    oldest_ts, latest_ts = parse_date(args.date)
-    if oldest_ts is None or latest_ts is None:
+    # --date と --days のバリデーション
+    if args.date and args.days:
+        print("エラー: --date と --days は同時に指定できません")
         return
-    
+    if not args.date and args.days is None:
+        print("エラー: --date または --days のどちらかを指定してください")
+        return
+
+    # 期間を算出
+    if args.days is not None:
+        oldest_ts, latest_ts = parse_days(args.days)
+        start_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        period_label = f"{start_date} ~ {end_date}（{args.days}日間）"
+    else:
+        oldest_ts, latest_ts = parse_date(args.date)
+        if oldest_ts is None or latest_ts is None:
+            return
+        period_label = args.date
+
     # Slack APIクライアントを初期化
     client = WebClient(token=token)
-    
+
     # チャンネル情報を取得
     print("チャンネル情報を取得中...")
     channel_info = get_channel_info(client, args.channel)
     if not channel_info:
         print("チャンネル情報を取得できませんでした")
         return
-    
+
     print(f"チャンネル: #{channel_info['name']} ({args.channel})")
-    print(f"取得日付: {args.date}")
+    print(f"取得期間: {period_label}")
     
     # メッセージを取得
     print("メッセージを取得中...")
