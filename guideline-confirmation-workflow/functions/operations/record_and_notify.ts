@@ -79,19 +79,49 @@ export async function recordQuizCleared(
 
   const adminChannel = env.ADMIN_CHANNEL;
   if (adminChannel) {
-    await client.chat.postMessage({
-      channel: adminChannel,
-      text: `${TOOL_NAME}ガイドライン確認: <@${userId}> — 理解度テストをクリアしました`,
-    });
+    try {
+      const result = await client.chat.postMessage({
+        channel: adminChannel,
+        text: `${TOOL_NAME}ガイドライン確認: <@${userId}> — 理解度テストをクリアしました`,
+      });
+      if (!result || result.ok !== true) {
+        console.error("Failed to send admin quiz cleared notification:", {
+          userId,
+          adminChannel,
+          result,
+        });
+      }
+    } catch (err) {
+      console.error("Error while sending admin quiz cleared notification:", {
+        userId,
+        adminChannel,
+        error: err,
+      });
+    }
   }
 
   // 指定ユーザーにDM通知（設定されている場合）
   const notifyUserId = env.NOTIFY_USER_ID;
   if (notifyUserId) {
-    await client.chat.postMessage({
-      channel: notifyUserId,
-      text: `${TOOL_NAME}ガイドライン確認: ${name}（${realName}）が理解度テストをクリアしました`,
-    });
+    try {
+      const result = await client.chat.postMessage({
+        channel: notifyUserId,
+        text: `${TOOL_NAME}ガイドライン確認: ${name}（${realName}）が理解度テストをクリアしました`,
+      });
+      if (!result || result.ok !== true) {
+        console.error("Failed to send DM quiz cleared notification:", {
+          userId,
+          notifyUserId,
+          result,
+        });
+      }
+    } catch (err) {
+      console.error("Error while sending DM quiz cleared notification:", {
+        userId,
+        notifyUserId,
+        error: err,
+      });
+    }
   }
 }
 
