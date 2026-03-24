@@ -14,6 +14,7 @@ export default Manifest({
   outgoingDomains: [
     // Spreadsheet 連携を使う場合のみ必要
     "script.google.com",
+    "script.googleusercontent.com",
   ],
   botScopes: [
     "commands",
