@@ -9,13 +9,13 @@ Search APIを使用した高速検索、スレッド返信を含む包括的集�
 import argparse
 import json
 import sys
-import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List
 
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+
+from slack_search import SlackSearchError, build_query, search_all_messages
 
 
 def parse_arguments():
@@ -31,90 +31,31 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def search_messages_with_api(client: WebClient, channel_id: str, keyword: str, days: int) -> List[Dict]:
+def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) -> List[Dict]:
     """
-    Search APIを使用してメッセージを検索する
-    スレッド返信、Bot/Appメッセージも含めて検索
-    100件以上のメッセージもページベースのページネーションで全て取得
+    Search APIでメッセージを検索し、キーワードフィルタ＋重複排除して返す。
     """
-    messages = []
-
-    # 検索期間を計算
     after_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-
-    # Search APIクエリを構築（大文字小文字を区別しない完全一致）
-    query = f'in:{channel_id} "{keyword}" after:{after_date}'
+    query = build_query(keyword=keyword, channel_id=channel_id, after_date=after_date)
 
     try:
-        page = 1
-        has_more = True
-        total_processed = 0
-
-        while has_more:
-            print(f"Searching messages (page {page})...")
-
-            # ページベースのページネーションを使用（より確実）
-            response = client.search_messages(
-                query=query,
-                sort="timestamp", 
-                sort_dir="asc",
-                count=100,  # 1ページあたりの最大値
-                page=page
-            )
-
-            if not response["ok"]:
-                print(f"Search API error: {response}", file=sys.stderr)
-                break
-
-            matches = response.get("messages", {}).get("matches", [])
-            pagination = response.get("messages", {}).get("pagination", {})
-            
-            # 現在のページ情報を表示
-            total_results = pagination.get("total_count", 0)
-            page_count = pagination.get("page_count", 1)
-            current_page = pagination.get("page", page)
-            
-            print(f"  Page {current_page}/{page_count}: {len(matches)} matches found")
-            print(f"  Total results available: {total_results}")
-
-            # メッセージを抽出
-            page_added = 0
-            for match in matches:
-                # キーワードの完全一致を確認（大文字小文字を区別しない）
-                text = match.get("text", "")
-                if keyword.lower() in text.lower():
-                    messages.append(match)
-                    page_added += 1
-                    
-            total_processed += len(matches)
-            print(f"  Added {page_added} messages from this page")
-            print(f"  Total messages collected so far: {len(messages)}")
-
-            # 次のページがあるか確認（page-based pagination）
-            if current_page < page_count:
-                page += 1
-                # APIレート制限対策として少し待機（Tier 3: 50リクエスト/分）
-                time.sleep(1.5)
-            else:
-                has_more = False
-                
-            # 安全対策：異常に多いページ数の場合は停止
-            if page > 50:  # 5000件（100*50）以上は停止
-                print(f"Warning: Stopped after {page-1} pages to prevent excessive API calls")
-                break
-
-        print(f"\nSearch completed:")
-        print(f"  Total API responses processed: {total_processed} messages")
-        print(f"  Final filtered messages: {len(messages)}")
-
-    except SlackApiError as e:
-        if e.response["error"] == "missing_scope":
-            print("Error: Token needs 'search:read' scope for Search API", file=sys.stderr)
-            print("Please ensure your token has the search:read scope enabled.", file=sys.stderr)
-        else:
-            print(f"Slack API error: {e}", file=sys.stderr)
+        all_matches = search_all_messages(client, query, sort="timestamp", sort_dir="asc")
+    except SlackSearchError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # キーワードフィルタ＋重複排除（スクリプト固有ロジック）
+    messages = []
+    seen_texts = set()
+    for match in all_matches:
+        text = match.get("text", "")
+        if keyword.lower() in text.lower():
+            normalized_text = text.strip().lower()
+            if normalized_text not in seen_texts:
+                seen_texts.add(normalized_text)
+                messages.append(match)
+
+    print(f"\nSearch completed: {len(messages)} unique messages (from {len(all_matches)} total)")
     return messages
 
 
@@ -204,7 +145,7 @@ def main():
     print(f"Search period: last {args.days} days")
     print("Using Search API for fast cross-message search (including threads)...")
 
-    messages = search_messages_with_api(client, args.channel, args.keyword, args.days)
+    messages = fetch_messages(client, args.channel, args.keyword, args.days)
 
     if not messages:
         print(f"\nNo messages found containing '{args.keyword}' in the specified period.")
