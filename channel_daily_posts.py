@@ -214,7 +214,7 @@ def main():
         return
     
     # --date と --days のバリデーション
-    if args.date and args.days:
+    if args.date and args.days is not None:
         print("エラー: --date と --days は同時に指定できません")
         return
     if not args.date and args.days is None:
