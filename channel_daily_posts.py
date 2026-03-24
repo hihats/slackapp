@@ -42,8 +42,9 @@ def parse_date(date_str):
 
 def parse_days(days):
     """N日前から今日までの開始・終了タイムスタンプを返す"""
-    today = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
-    start = (datetime.now() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now()
+    today = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    start = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
     return start.timestamp(), today.timestamp()
 
 
