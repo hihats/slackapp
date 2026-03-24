@@ -37,9 +37,9 @@ export async function recordConfirmation(
 ): Promise<void> {
   const { userId, client, env } = params;
   const { realName } = await resolveUserNames(client, userId);
-  const storage = createStorageProvider(env, client);
 
   try {
+    const storage = createStorageProvider(env, client);
     await storage.saveConfirmation({
       timestamp: new Date().toISOString(),
       userId,
