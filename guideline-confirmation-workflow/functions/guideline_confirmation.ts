@@ -76,8 +76,22 @@ export default SlackFunction(
       const answerValue =
         view.state.values[blockId]?.quiz_answer.selected_option?.value;
 
-      if (!quiz || !answerValue) return;
+      if (!quiz) {
+        await client.functions.completeError({
+          function_execution_id: body.function_data.execution_id,
+          error: "Quiz data not found for the submitted view.",
+        });
+        return { response_action: "clear" };
+      }
 
+      if (!answerValue) {
+        return {
+          response_action: "errors",
+          errors: {
+            [blockId]: "回答を選択してください。",
+          },
+        };
+      }
       const isCorrect = answerValue === quiz.correctValue;
 
       await recordQuizResult({
