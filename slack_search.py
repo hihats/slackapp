@@ -43,13 +43,24 @@ def build_query(
     channel_id: Optional[str] = None,
     after_date: Optional[str] = None,
     extra: Optional[str] = None,
+    exact_match: bool = True,
 ) -> str:
-    """Slack search.messages 用のクエリ文字列を組み立てる"""
+    """Slack search.messages 用のクエリ文字列を組み立てる
+
+    exact_match=True の場合、keyword を引用符で囲みフレーズ一致にする。
+    短いキーワードや部分一致させたい場合は False を指定する。
+    """
     parts = []
     if channel_id:
-        parts.append(f"in:{channel_id}")
+        # チャンネルIDは <#ID> 形式でないと search.messages で認識されない
+        if channel_id.startswith("C") and channel_id[1:].isalnum():
+            parts.append(f"in:<#{channel_id}>")
+        else:
+            parts.append(f"in:{channel_id}")
     if keyword:
-        parts.append(f'"{keyword}"')
+        # in: と組み合わせたとき大文字混在だとヒットしないことがある Slack 側の挙動を回避
+        kw = keyword.lower()
+        parts.append(f'"{kw}"' if exact_match else kw)
     if extra:
         parts.append(extra)
     if after_date:
