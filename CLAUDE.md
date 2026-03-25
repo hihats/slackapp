@@ -32,7 +32,7 @@ docker run -v $(pwd):/app slackapp \
 pip install -r requirements.txt
 
 # Run the application with Docker
-docker run --volume $PWD:/app slackapp wordcloud.py --token $SLACK_TOKEN --channel $CHANNEL_ID --keyword KEYWORD
+docker run --volume $PWD:/app slackapp wordclouds.py --token $SLACK_TOKEN --channel $CHANNEL_ID --keyword KEYWORD
 ```
 
 ### Retrieving Posts with Your Reactions
@@ -107,7 +107,7 @@ docker run --volume $PWD:/app slackapp weekly_message_count.py --token $SLACK_TO
 
 ### Main Components
 
-1. **slack_wordcloud.py**: Main application entry point containing all core functionality
+1. **slack_wordclouds.py**: Main application entry point containing all core functionality
 2. **MeCab Integration**: Uses MeCab for Japanese morphological analysis with custom dictionary support
 3. **Slack API**: Uses slack-sdk for message retrieval and search
 4. **Word Cloud Generation**: Uses matplotlib and wordcloud libraries for visualization
@@ -322,6 +322,17 @@ Based on our implementation and testing, the following rate limits apply:
 | **conversations.replies** | Tier 3 | 1.5s | Thread retrieval |
 | **search.messages** | Tier 3 | 1.5s | Search API endpoint |
 | **users.info** | Tier 4 | 1s | User profile lookups |
+
+### Pagination
+
+Slack Web API は多くのメソッドで cursor-based pagination を推奨しているが、`search.messages` は例外的に **page-based pagination が正式な方式** である。
+
+- **`search.messages`**: page-based（`page` + `count` パラメータ）。`page` 最大100、`count` 最大100（= 最大10,000件）
+- **`conversations.history`**, **`conversations.replies`** 等: cursor-based（`cursor` パラメータ）
+
+`search.messages` にも `cursor` パラメータは存在するが、公式ページネーションガイドの cursor-based 対応メソッド一覧には含まれていない。
+
+参照: https://docs.slack.dev/apis/web-api/pagination
 
 ### Special Rate Limits
 
