@@ -24,18 +24,38 @@ def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
         try:
             return func(*args, **kwargs)
         except SlackApiError as e:
+            # Slack が ratelimited を返した場合はリトライする
             if e.response["error"] == "ratelimited":
                 if attempt == max_retries - 1:
                     print(f"最大再試行回数に達しました: {e}")
                     raise
-                if e.response.status_code == 429:
+
+                # 通常は 429 + Retry-After が返る想定だが、
+                # status_code が無い / 429 でない場合にもフォールバックで待機する
+                status_code = getattr(e.response, "status_code", None)
+                if status_code == 429:
                     retry_after = int(e.response.headers.get("Retry-After", 30))
-                    print(f"レート制限に達しました。{retry_after}秒待機します... (試行 {attempt + 1}/{max_retries})")
+                    print(
+                        f"レート制限に達しました。{retry_after}秒待機します... "
+                        f"(試行 {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(retry_after)
+                else:
+                    # フォールバックの指数バックオフ
+                    fallback_delay = base_delay * (2 ** attempt)
+                    print(
+                        f"レート制限 (非 429 または status_code 不明) に達しました。"
+                        f"{fallback_delay}秒待機します... (試行 {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(fallback_delay)
             else:
                 raise
 
-    return None
+    # ここに到達するのは通常想定していないが、安全のため明示的に例外を投げる
+    raise SlackApiError(
+        "レート制限ハンドラで最大再試行回数に達しましたが、SlackApiError が再送時に伝播しませんでした。",
+        response=None,
+    )
 
 
 def build_query(
