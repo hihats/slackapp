@@ -2,7 +2,6 @@ import os
 import re
 import argparse
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 import pandas as pd
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
@@ -11,8 +10,9 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 import numpy as np
 from PIL import Image
-import time
 from positive_words import POSITIVE_WORDS
+
+from slack_search import build_query, search_all_messages
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Slack チャンネルからキーワード検索してワードクラウドを生成します')
@@ -27,59 +27,23 @@ def parse_arguments():
     return parser.parse_args()
 
 def get_messages(client, channel_id, keyword, days_ago):
-    """指定したチャンネルから特定のキーワードを含むメッセージを取得"""
+    """指定したチャンネルから特定のキーワードを含むメッセージのテキストを取得"""
+    after_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+    query = build_query(keyword=keyword, channel_id=channel_id, after_date=after_date, exact_match=False)
+
+    matches = search_all_messages(client, query, sort="timestamp", sort_dir="desc")
+
+    # テキスト抽出（スクリプト固有ロジック: blocks fallback を含む）
     all_messages = []
-    
-    # 検索対象の期間を設定
-    oldest_time = (datetime.now(timezone.utc) - timedelta(days=days_ago)).timestamp()
-    
-    try:
-        # ページネーション処理を追加
-        page = 1
-        has_more = True
-        
-        while has_more:
-            # キーワード検索を実行
-            result = client.search_messages(
-                query=keyword,
-                count=100,  # 1リクエストでの最大値
-                page=page,
-                sort="timestamp",
-                sort_dir="desc",
-            )
-            
-            if not result["ok"]:
-                print(f"エラー: {result['error']}")
-                break
-                
-            matches = result["messages"]["matches"]
-            if not matches:
-                break
-                
-            # 指定チャンネルのメッセージかつ期間内のものだけを抽出
-            for match in matches:
-                if match["channel"]["id"] == channel_id and float(match["ts"]) >= oldest_time:
-                    if match['text'] == '':
-                        if 'blocks' in match and len(match['blocks']) > 1 and 'text' in match['blocks'][1] and 'text' in match['blocks'][1]['text']:
-                            all_messages.append(match['blocks'][1]['text']['text'])
-                    else:
-                        all_messages.append(match['text'])
-            
-            # 次のページがあるか確認
-            pagination = result["messages"]["pagination"]
-            if pagination["page"] < pagination["page_count"]:
-                page += 1
-                # APIレート制限に配慮して少し待機（Tier 3: 50リクエスト/分）
-                time.sleep(1.5)
-            else:
-                has_more = False
-        
-        print(f"{len(all_messages)}件のメッセージが見つかりました")
-        return all_messages
-    
-    except SlackApiError as e:
-        print(f"エラー: {e}")
-        return []
+    for match in matches:
+        if match["text"] == "":
+            if "blocks" in match and len(match["blocks"]) > 1 and "text" in match["blocks"][1] and "text" in match["blocks"][1]["text"]:
+                all_messages.append(match["blocks"][1]["text"]["text"])
+        else:
+            all_messages.append(match["text"])
+
+    print(f"{len(all_messages)}件のメッセージが見つかりました")
+    return all_messages
 
 def tokenize_japanese(text, stopwords_list=None, keyword=None):
     """日本語テキストを形態素解析して単語リストに変換"""
