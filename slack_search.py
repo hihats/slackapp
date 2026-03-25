@@ -72,7 +72,7 @@ def build_query(
     parts = []
     if channel_id:
         # チャンネルIDは <#ID> 形式でないと search.messages で認識されない
-        if channel_id.startswith("C") and channel_id[1:].isalnum():
+        if channel_id[0] in ("C", "G") and channel_id[1:].isalnum():
             parts.append(f"in:<#{channel_id}>")
         else:
             parts.append(f"in:{channel_id}")
