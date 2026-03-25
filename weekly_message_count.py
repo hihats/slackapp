@@ -46,13 +46,14 @@ def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) 
 
     # キーワードフィルタ＋重複排除（スクリプト固有ロジック）
     messages = []
-    seen_texts = set()
+    # メッセージ本文ではなく、チャネルID＋タイムスタンプを用いて重複排除する
+    seen_message_ids = set()
     for match in all_matches:
         text = match.get("text", "")
         if keyword.lower() in text.lower():
-            normalized_text = text.strip().lower()
-            if normalized_text not in seen_texts:
-                seen_texts.add(normalized_text)
+            message_id = f"{channel_id}:{match.get('ts')}"
+            if message_id not in seen_message_ids:
+                seen_message_ids.add(message_id)
                 messages.append(match)
 
     print(f"\nSearch completed: {len(messages)} unique messages (from {len(all_matches)} total)")
