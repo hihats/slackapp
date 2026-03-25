@@ -113,8 +113,15 @@ def search_messages(
                 page=page,
             )
 
-            if not response or not response["ok"]:
-                break
+            if not response or not response.get("ok", False):
+                # handle_rate_limit が None を返した、または Slack API が ok=False を返した場合は
+                # サイレントにページネーションを終了せず、呼び出し側に明示的に失敗を伝える
+                error_msg = "Failed to fetch search results from Slack API."
+                if response and isinstance(response, dict):
+                    error_detail = response.get("error")
+                    if error_detail:
+                        error_msg = f"{error_msg} error={error_detail}"
+                raise SlackSearchError(error_msg)
 
             matches = response.get("messages", {}).get("matches", [])
             pagination = response.get("messages", {}).get("pagination", {})
