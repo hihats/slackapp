@@ -5,7 +5,6 @@ search.messages API の呼び出し・ページネーション・レート制限
 各スクリプトはクエリ構築と結果加工のみ担当する。
 """
 
-import sys
 import time
 from typing import Dict, Generator, List, Optional
 
