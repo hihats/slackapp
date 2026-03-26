@@ -87,6 +87,18 @@ Count messages containing specific keywords in a channel and aggregate by week:
 docker run --volume $PWD:/app slackapp weekly_message_count.py --token $SLACK_TOKEN --channel $CHANNEL_ID --keyword "検索文言" --days 30 --output outputs/weekly_count_$(date +%Y%m%d).json
 ```
 
+### Reactions Report
+
+Collect all posts by a specific user that received reactions within a specified period:
+
+```bash
+# Get reactions report for a user (all channels, last 30 days)
+docker run --volume $PWD:/app slackapp reactions_report.py --token $SLACK_TOKEN --user $SLACK_USER_ID --days 30 --output outputs/reactions_report_$(date +%Y%m%d).json
+
+# Filter by specific channel
+docker run --volume $PWD:/app slackapp reactions_report.py --token $SLACK_TOKEN --user $SLACK_USER_ID --channel $CHANNEL_ID --days 7 --output outputs/reactions_report_$(date +%Y%m%d).json
+```
+
 ### Available Command Line Arguments
 
 - `--token`: Slack API token (required)
