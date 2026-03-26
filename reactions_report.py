@@ -20,7 +20,7 @@ from typing import Dict, List, Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from mentioned_messages import resolve_user_id
+from slack_user import resolve_user_id
 from slack_search import SlackSearchError, build_query, handle_rate_limit, search_all_messages
 
 
