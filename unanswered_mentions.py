@@ -6,28 +6,8 @@ from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import time
-import random
 
-def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
-    """レート制限に対応するためのラッパー関数"""
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except SlackApiError as e:
-            if e.response["error"] == "ratelimited":
-                if attempt == max_retries - 1:
-                    print(f"最大再試行回数に達しました: {e}")
-                    raise
-                            # HTTP 429 Too Many Requestsの場合
-                if e.response.status_code == 429:
-                    retry_after = int(e.response.headers.get('Retry-After', 30))
-                    print(f"レート制限に達しました。{retry_after:.2f}秒待機します... (試行 {attempt + 1}/{max_retries})")
-                    time.sleep(retry_after)
-
-            else:
-                raise
-    
-    return None
+from slack_search import build_query, handle_rate_limit, search_messages
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -133,72 +113,30 @@ def get_channel_info(client, channel_id):
 def get_channels_with_mentions_from_search(client, mentioned_user_id, days_ago, channel_id=None):
     """search.messages APIを使用してメンションがあるチャンネルIDのセットを取得"""
     channels_with_mentions = set()
-    
-    # 検索期間の設定
+
     after_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-    
-    # 検索クエリの構築
-    query = f"<@{mentioned_user_id}> after:{after_date}"
-    if channel_id:
-        query += f" in:{channel_id}"
-    
+    query = build_query(
+        channel_id=channel_id,
+        after_date=after_date,
+        extra=f"<@{mentioned_user_id}>",
+    )
     print(f"検索クエリ: {query}")
-    
+
     try:
-        cursor = "*"
-        page = 1
-        
-        while cursor:
-            print(f"検索ページ {page} を取得中...")
-            
-            # search.messages APIを使用
-            response = handle_rate_limit(
-                client.search_messages,
-                query=query,
-                count=100,
-                cursor=cursor if cursor != "*" else None,
-                sort="timestamp",
-                sort_dir="desc"
-            )
-            
-            if not response or not response["ok"]:
-                print(f"検索エラー: {response.get('error', 'Unknown error')}")
+        for matches in search_messages(client, query, sort="timestamp", sort_dir="desc"):
+            if not matches:
                 break
-            
-            messages = response.get("messages", {}).get("matches", [])
-            
-            if not messages:
-                print("これ以上メッセージが見つかりません")
-                break
-            
-            print(f"  {len(messages)}件のメッセージを取得")
-            
-            # チャンネルIDを抽出
-            for msg in messages:
+            print(f"  {len(matches)}件のメッセージを取得")
+            for msg in matches:
                 channel_info = msg.get("channel", {})
                 if channel_info.get("id"):
                     channels_with_mentions.add(channel_info["id"])
-            
-            # 次のページのカーソルを取得
-            response_metadata = response.get("messages", {}).get("paging", {})
-            next_cursor = response_metadata.get("next_cursor")
-            
-            if not next_cursor:
-                print("すべてのページを取得しました")
-                break
-            
-            cursor = next_cursor
-            page += 1
-            time.sleep(2)  # APIレート制限対策
-        
-        print(f"メンションが見つかったチャンネル数: {len(channels_with_mentions)}")
-        return channels_with_mentions
-    
-    except SlackApiError as e:
+    except Exception as e:
         print(f"検索APIエラー: {e}")
-        if hasattr(e, 'response') and e.response.get('error') == 'missing_scope':
-            print("エラー: search:read スコープが必要です。トークンの権限を確認してください。")
         return set()
+
+    print(f"メンションが見つかったチャンネル数: {len(channels_with_mentions)}")
+    return channels_with_mentions
 
 def get_messages_with_mentions(client, channel_id, mentioned_user_id, days_ago):
     """指定したチャンネルから特定のユーザーへのメンションを含むメッセージを取得（スレッド内も含む）"""
