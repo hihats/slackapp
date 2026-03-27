@@ -9,6 +9,8 @@ import sys
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from slack_search import handle_rate_limit
+
 
 def resolve_user_id(client: WebClient, user_input: str) -> str:
     """
@@ -26,7 +28,7 @@ def resolve_user_id(client: WebClient, user_input: str) -> str:
     try:
         cursor = None
         while True:
-            response = client.users_list(cursor=cursor, limit=200)
+            response = handle_rate_limit(client.users_list, cursor=cursor, limit=200)
             for member in response.get("members", []):
                 if member.get("deleted") or member.get("is_bot"):
                     continue
