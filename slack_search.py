@@ -18,7 +18,11 @@ class SlackSearchError(Exception):
 
 
 def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
-    """レート制限に対応するためのラッパー関数"""
+    """レート制限に対応するためのラッパー関数
+
+    Retry-After ヘッダーがある場合はその値を使用し、
+    ない場合は base_delay を基にした指数バックオフ (base_delay * 2^attempt) を適用する。
+    """
     for attempt in range(max_retries):
         try:
             return func(*args, **kwargs)
@@ -28,12 +32,12 @@ def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
                 if attempt == max_retries - 1:
                     print(f"最大再試行回数に達しました: {e}")
                     raise
-
                 # 通常は 429 + Retry-After が返る想定だが、
                 # status_code が無い / 429 でない場合にもフォールバックで待機する
                 status_code = getattr(e.response, "status_code", None)
                 if status_code == 429:
-                    retry_after = int(e.response.headers.get("Retry-After", 30))
+                    backoff = base_delay * (2 ** attempt)
+                    retry_after = int(e.response.headers.get("Retry-After", backoff))
                     print(
                         f"レート制限に達しました。{retry_after}秒待機します... "
                         f"(試行 {attempt + 1}/{max_retries})"
