@@ -5,7 +5,6 @@ search.messages API の呼び出し・ページネーション・レート制限
 各スクリプトはクエリ構築と結果加工のみ担当する。
 """
 
-import sys
 import time
 from typing import Dict, Generator, List, Optional
 
@@ -28,19 +27,38 @@ def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
         try:
             return func(*args, **kwargs)
         except SlackApiError as e:
+            # Slack が ratelimited を返した場合はリトライする
             if e.response["error"] == "ratelimited":
                 if attempt == max_retries - 1:
                     print(f"最大再試行回数に達しました: {e}")
                     raise
-                if e.response.status_code == 429:
+                # 通常は 429 + Retry-After が返る想定だが、
+                # status_code が無い / 429 でない場合にもフォールバックで待機する
+                status_code = getattr(e.response, "status_code", None)
+                if status_code == 429:
                     backoff = base_delay * (2 ** attempt)
                     retry_after = int(e.response.headers.get("Retry-After", backoff))
-                    print(f"レート制限に達しました。{retry_after}秒待機します... (試行 {attempt + 1}/{max_retries})")
+                    print(
+                        f"レート制限に達しました。{retry_after}秒待機します... "
+                        f"(試行 {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(retry_after)
+                else:
+                    # フォールバックの指数バックオフ
+                    fallback_delay = base_delay * (2 ** attempt)
+                    print(
+                        f"レート制限 (非 429 または status_code 不明) に達しました。"
+                        f"{fallback_delay}秒待機します... (試行 {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(fallback_delay)
             else:
                 raise
 
-    return None
+    # ここに到達するのは通常想定していないが、安全のため明示的に例外を投げる
+    raise SlackApiError(
+        "レート制限ハンドラで最大再試行回数に達しましたが、SlackApiError が再送時に伝播しませんでした。",
+        response=None,
+    )
 
 
 def build_query(
@@ -58,7 +76,7 @@ def build_query(
     parts = []
     if channel_id:
         # チャンネルIDは <#ID> 形式でないと search.messages で認識されない
-        if channel_id.startswith("C") and channel_id[1:].isalnum():
+        if channel_id[0] in ("C", "G") and channel_id[1:].isalnum():
             parts.append(f"in:<#{channel_id}>")
         else:
             parts.append(f"in:{channel_id}")
@@ -98,8 +116,15 @@ def search_messages(
                 page=page,
             )
 
-            if not response or not response["ok"]:
-                break
+            if not response or not response.get("ok", False):
+                # handle_rate_limit が None を返した、または Slack API が ok=False を返した場合は
+                # サイレントにページネーションを終了せず、呼び出し側に明示的に失敗を伝える
+                error_msg = "Failed to fetch search results from Slack API."
+                if response and isinstance(response, dict):
+                    error_detail = response.get("error")
+                    if error_detail:
+                        error_msg = f"{error_msg} error={error_detail}"
+                raise SlackSearchError(error_msg)
 
             matches = response.get("messages", {}).get("matches", [])
             pagination = response.get("messages", {}).get("pagination", {})
