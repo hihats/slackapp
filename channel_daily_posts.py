@@ -42,9 +42,12 @@ def parse_date(date_str):
 
 def parse_days(days):
     """N日前から今日までの開始・終了タイムスタンプを返す"""
+    if days <= 0:
+        print(f"エラー: --days は 1 以上の整数を指定してください: {days}")
+        return None, None
     now = datetime.now()
     today = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-    start = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return start.timestamp(), today.timestamp()
 
 
@@ -224,7 +227,9 @@ def main():
     # 期間を算出
     if args.days is not None:
         oldest_ts, latest_ts = parse_days(args.days)
-        start_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+        if oldest_ts is None or latest_ts is None:
+            return
+        start_date = (datetime.now() - timedelta(days=args.days - 1)).strftime('%Y-%m-%d')
         end_date = datetime.now().strftime('%Y-%m-%d')
         period_label = f"{start_date} ~ {end_date}（{args.days}日間）"
     else:
