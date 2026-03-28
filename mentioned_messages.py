@@ -33,7 +33,7 @@ def parse_arguments():
 
 def fetch_messages(client: WebClient, user_id: str, days: int, channel_id: str = None) -> List[Dict]:
     """
-    Search APIでメンションメッセージを検索し、重複排除して返す。
+    Search APIでメンションメッセージを検索して返す。
     ユーザーIDから <@U12345> 形式のメンション文字列を構築して検索する。
     """
     mention_keyword = f"<@{user_id}>"
@@ -43,22 +43,12 @@ def fetch_messages(client: WebClient, user_id: str, days: int, channel_id: str =
     query = build_query(channel_id=channel_id, after_date=after_date, extra=mention_keyword)
 
     try:
-        all_matches = search_all_messages(client, query, sort="timestamp", sort_dir="asc")
+        messages = search_all_messages(client, query, sort="timestamp", sort_dir="asc")
     except SlackSearchError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # 重複排除
-    messages = []
-    seen_texts = set()
-    for match in all_matches:
-        text = match.get("text", "")
-        normalized_text = text.strip().lower()
-        if normalized_text not in seen_texts:
-            seen_texts.add(normalized_text)
-            messages.append(match)
-
-    print(f"\nSearch completed: {len(messages)} unique messages (from {len(all_matches)} total)")
+    print(f"\nSearch completed: {len(messages)} messages found")
     return messages
 
 
