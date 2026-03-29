@@ -35,7 +35,7 @@ posts-with-reactions-quarterly:
 	docker run --volume $(PWD):/app $(DOCKER_IMAGE) posts_with_my_reactions.py \
 		--token $(SLACK_TOKEN) \
 		--days 180 \
-		--output outputs/auarterly_posts_with_my_reactions_$(shell date +%Y%m%d).json
+		--output outputs/quarterly_posts_with_my_reactions_$(shell date +%Y%m%d).json
 # Monthly version: Get posts with my reactions for the last 31 days
 posts-with-reactions-monthly:
 	docker run --volume $(PWD):/app $(DOCKER_IMAGE) posts_with_my_reactions.py \
