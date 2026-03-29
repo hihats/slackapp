@@ -42,11 +42,14 @@ def get_messages(client, channel_id, keyword, days_ago):
     # テキスト抽出（スクリプト固有ロジック: blocks fallback を含む）
     all_messages = []
     for match in matches:
-        if match["text"] == "":
-            if "blocks" in match and len(match["blocks"]) > 1 and "text" in match["blocks"][1] and "text" in match["blocks"][1]["text"]:
-                all_messages.append(match["blocks"][1]["text"]["text"])
-        else:
-            all_messages.append(match["text"])
+        text = match.get("text") or ""
+        if not text:
+            blocks = match.get("blocks") or []
+            if isinstance(blocks, list) and len(blocks) > 1 and isinstance(blocks[1], dict):
+                block_text_obj = blocks[1].get("text") or {}
+                text = block_text_obj.get("text", "") if isinstance(block_text_obj, dict) else ""
+        if text:
+            all_messages.append(text)
 
     print(f"{len(all_messages)}件のメッセージが見つかりました")
     return all_messages
