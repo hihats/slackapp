@@ -31,7 +31,13 @@ def get_messages(client, channel_id, keyword, days_ago):
     after_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
     query = build_query(keyword=keyword, channel_id=channel_id, after_date=after_date, exact_match=False)
 
-    matches = search_all_messages(client, query, sort="timestamp", sort_dir="desc")
+    try:
+        matches = search_all_messages(client, query, sort="timestamp", sort_dir="desc")
+    except Exception as e:
+        print("Slack のメッセージ検索中にエラーが発生しました。")
+        print("トークンの有効性や必要なスコープ (例: search:read) が付与されているか確認してください。")
+        print(f"詳細: {e}")
+        return []
 
     # テキスト抽出（スクリプト固有ロジック: blocks fallback を含む）
     all_messages = []
