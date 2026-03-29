@@ -75,6 +75,20 @@ docker run --volume $PWD:/app slackapp posts_with_my_reactions.py \
   --output outputs/posts_with_my_reactions_$(date +%Y%m%d).json
 ```
 
+### リアクションレポート生成
+
+```bash
+# 特定ユーザーの投稿に対するリアクションレポート（全チャンネル、過去30日）
+docker run --volume $PWD:/app slackapp reactions_report.py \
+  --token $SLACK_TOKEN --user $SLACK_USER_ID --days 30 \
+  --output outputs/reactions_report_$(date +%Y%m%d).json
+
+# 特定チャンネルに絞り込み
+docker run --volume $PWD:/app slackapp reactions_report.py \
+  --token $SLACK_TOKEN --user $SLACK_USER_ID --channel $CHANNEL_ID --days 7 \
+  --output outputs/reactions_report_$(date +%Y%m%d).json
+```
+
 ### メッセージのリアクション取得
 
 ```bash
@@ -133,6 +147,7 @@ docker run --volume $PWD:/app slackapp inactive_channels.py \
 | `unanswered_mentions.py` | 未回答メンション検出 |
 | `channel_daily_posts.py` | チャンネル日次投稿取得 |
 | `posts_with_my_reactions.py` | 自分のリアクション付き投稿取得 |
+| `reactions_report.py` | ユーザー投稿へのリアクションレポート生成 |
 | `message_reactions.py` | メッセージのリアクション取得 |
 | `get_all_channels.py` | 全チャンネル一覧取得 |
 | `inactive_channels.py` | 非アクティブチャンネル検出 |

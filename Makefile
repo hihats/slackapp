@@ -1,6 +1,6 @@
 DOCKER_IMAGE = slackapp
 
-.PHONY: unanswered-mentions-daily unanswered-mentions-weekly posts-with-reactions-weekly posts-with-reactions-monthly
+.PHONY: unanswered-mentions-daily unanswered-mentions-weekly posts-with-reactions-weekly posts-with-reactions-monthly reactions-report-weekly reactions-report-monthly
 
 # Daily version: Check unanswered mentions for the last 1 day
 unanswered-mentions-daily:
@@ -33,3 +33,19 @@ posts-with-reactions-monthly:
 		--token $(SLACK_TOKEN) \
 		--days 31 \
 		--output outputs/monthly_posts_with_my_reactions_$(shell date +%Y%m%d).json
+
+# Weekly version: Reactions report for the last 7 days
+reactions-report-weekly:
+	docker run --volume $(PWD):/app $(DOCKER_IMAGE) reactions_report.py \
+		--token $(SLACK_TOKEN) \
+		--user $(SLACK_USER_ID) \
+		--days 7 \
+		--output outputs/weekly_reactions_report_$(shell date +%Y%m%d).json
+
+# Monthly version: Reactions report for the last 31 days
+reactions-report-monthly:
+	docker run --volume $(PWD):/app $(DOCKER_IMAGE) reactions_report.py \
+		--token $(SLACK_TOKEN) \
+		--user $(SLACK_USER_ID) \
+		--days 31 \
+		--output outputs/monthly_reactions_report_$(shell date +%Y%m%d).json
