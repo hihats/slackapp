@@ -6,29 +6,10 @@ from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from slack_rate_limit import handle_rate_limit
+
 # 定数定義
 INACTIVE_THRESHOLD_DAYS = 365  # 非アクティブと判定する日数
-
-def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
-    """レート制限に対応するためのラッパー関数"""
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except SlackApiError as e:
-            if e.response["error"] == "ratelimited":
-                if attempt == max_retries - 1:
-                    print(f"最大再試行回数に達しました: {e}")
-                    raise
-                            # HTTP 429 Too Many Requestsの場合
-                if e.response.status_code == 429:
-                    retry_after = int(e.response.headers.get('Retry-After', 30))
-                    print(f"レート制限に達しました。{retry_after:.2f}秒待機します... (試行 {attempt + 1}/{max_retries})")
-                    time.sleep(retry_after)
-
-            else:
-                raise
-    
-    return None
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -88,7 +69,7 @@ def get_channel_last_message_time(client, channel_id):
         # 最新メッセージのタイムスタンプを取得
         latest_message = messages[0]
         timestamp = float(latest_message["ts"])
-        return datetime.fromtimestamp(timestamp)
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
     
     except SlackApiError as e:
         if e.response["error"] == "channel_not_found":
