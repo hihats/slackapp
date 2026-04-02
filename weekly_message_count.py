@@ -3,19 +3,19 @@
 Slack Weekly Message Count Script
 
 特定のチャンネルから特定の文言を含むメッセージを週ごとに集計します。
-Search APIを使用した高速検索、スレッド返信を含む包括的集計を実行します。
+conversations.history でメッセージを取得し、スレッド返信も含めてキーワード検索します。
 """
 
 import argparse
 import json
 import sys
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List
 
 from slack_sdk import WebClient
-
-from slack_search import SlackSearchError, build_query, search_all_messages
+from slack_sdk.errors import SlackApiError
 
 
 def parse_arguments():
@@ -24,7 +24,7 @@ def parse_arguments():
         description="特定チャンネルから特定文言を含むメッセージを週ごとに集計"
     )
     parser.add_argument("--token", required=True, help="Slack API トークン")
-    parser.add_argument("--channel", required=True, help="チャンネルID")
+    parser.add_argument("--channel", required=True, help="チャンネルID (例: C07NX1JJ215)")
     parser.add_argument("--keyword", required=True, help="検索キーワード（完全一致）")
     parser.add_argument("--days", type=int, default=30, help="検索する過去日数 (デフォルト: 30)")
     parser.add_argument("--output", required=True, help="出力JSONファイルパス")
@@ -33,30 +33,93 @@ def parse_arguments():
 
 def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) -> List[Dict]:
     """
-    Search APIでメッセージを検索し、キーワードフィルタ＋重複排除して返す。
+    conversations.history + conversations.replies でメッセージを取得し、
+    キーワードフィルタ＋重複排除して返す。
     """
-    after_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-    query = build_query(keyword=keyword, channel_id=channel_id, after_date=after_date)
+    oldest = (datetime.now() - timedelta(days=days)).timestamp()
+    latest = datetime.now().timestamp()
+    keyword_lower = keyword.lower()
 
+    # conversations.history で期間内の全メッセージ取得
+    all_channel_messages = []
     try:
-        all_matches = search_all_messages(client, query, sort="timestamp", sort_dir="asc")
-    except SlackSearchError as e:
+        cursor = None
+        while True:
+            response = client.conversations_history(
+                channel=channel_id,
+                oldest=str(oldest),
+                latest=str(latest),
+                limit=200,
+                cursor=cursor
+            )
+            if not response["ok"]:
+                print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
+                sys.exit(1)
+
+            all_channel_messages.extend(response.get("messages", []))
+
+            if response.get("has_more") and response.get("response_metadata", {}).get("next_cursor"):
+                cursor = response["response_metadata"]["next_cursor"]
+                time.sleep(1.5)  # Tier 3
+            else:
+                break
+    except SlackApiError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # キーワードフィルタ＋重複排除（スクリプト固有ロジック）
-    messages = []
-    # メッセージ本文ではなく、チャネルID＋タイムスタンプを用いて重複排除する
-    seen_message_ids = set()
-    for match in all_matches:
-        text = match.get("text", "")
-        if keyword.lower() in text.lower():
-            message_id = f"{channel_id}:{match.get('ts')}"
-            if message_id not in seen_message_ids:
-                seen_message_ids.add(message_id)
-                messages.append(match)
+    print(f"Fetched {len(all_channel_messages)} messages from channel history.")
 
-    print(f"\nSearch completed: {len(messages)} unique messages (from {len(all_matches)} total)")
+    # キーワードフィルタ＋重複排除（親メッセージ＋スレッド返信）
+    messages = []
+    seen_texts = set()
+
+    for msg in all_channel_messages:
+        # 親メッセージのチェック
+        text = msg.get("text", "")
+        ts = msg.get("ts")
+        if keyword_lower in text.lower():
+            normalized_text = text.strip().lower()
+            if normalized_text not in seen_texts:
+                seen_texts.add(normalized_text)
+                messages.append(msg)
+
+        # スレッドがある場合は返信も検索
+        if msg.get("reply_count", 0) > 0:
+            try:
+                reply_cursor = None
+                while True:
+                    reply_response = client.conversations_replies(
+                        channel=channel_id,
+                        ts=ts,
+                        oldest=str(oldest),
+                        latest=str(latest),
+                        limit=200,
+                        cursor=reply_cursor
+                    )
+                    if not reply_response["ok"]:
+                        break
+
+                    replies = reply_response.get("messages", [])
+                    # 最初のページでは親メッセージ（index 0）をスキップ
+                    for reply in (replies[1:] if reply_cursor is None else replies):
+                        reply_text = reply.get("text", "")
+                        if keyword_lower in reply_text.lower():
+                            normalized_reply = reply_text.strip().lower()
+                            if normalized_reply not in seen_texts:
+                                seen_texts.add(normalized_reply)
+                                messages.append(reply)
+
+                    if reply_response.get("has_more") and reply_response.get("response_metadata", {}).get("next_cursor"):
+                        reply_cursor = reply_response["response_metadata"]["next_cursor"]
+                        time.sleep(1.5)  # Tier 3
+                    else:
+                        break
+
+                time.sleep(1.5)  # Tier 3
+            except SlackApiError as e:
+                print(f"Warning: Failed to fetch replies for thread {ts}: {e}", file=sys.stderr)
+
+    print(f"Found {len(messages)} messages containing the keyword.")
     return messages
 
 
@@ -141,21 +204,16 @@ def main():
     # Slack クライアントを初期化
     client = WebClient(token=args.token)
 
-    # Search APIでメッセージを検索
     print(f"Searching for messages containing '{args.keyword}' in channel {args.channel}...")
     print(f"Search period: last {args.days} days")
-    print("Using Search API for fast cross-message search (including threads)...")
 
     messages = fetch_messages(client, args.channel, args.keyword, args.days)
 
     if not messages:
         print(f"\nNo messages found containing '{args.keyword}' in the specified period.")
-        # 空の結果を保存
         empty_result = format_output(args.channel, args.keyword, args.days, {}, 0)
         save_results(empty_result, args.output)
         sys.exit(0)
-
-    print(f"\nFound {len(messages)} messages containing the keyword.")
 
     # 週ごとに集計
     weekly_counts = aggregate_by_week(messages)
