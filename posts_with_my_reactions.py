@@ -213,7 +213,7 @@ def main():
         author_user_info = None
         if author_user_id:
             author_user_info = get_user_info(client, author_user_id)
-            time.sleep(1)  # users.info APIのレート制限対策（Tier 4: 100リクエスト/分）
+            time.sleep(0.6)  # users.info APIのレート制限対策（Tier 4: 100リクエスト/分）
         
         # 投稿データをフォーマット
         post_data = format_reaction_based_post_data(
