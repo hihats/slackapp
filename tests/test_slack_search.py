@@ -116,9 +116,8 @@ class TestHandleRateLimit:
 def _mock_search_response(matches, page=1, page_count=1):
     """search_messages API レスポンスのモックを生成"""
     resp = MagicMock()
-    resp.__getitem__ = lambda self, key: True if key == "ok" else None
-    resp.__bool__ = lambda self: True
-    resp.get = lambda key, default=None: {
+    data = {
+        "ok": True,
         "messages": {
             "matches": matches,
             "pagination": {
@@ -126,8 +125,11 @@ def _mock_search_response(matches, page=1, page_count=1):
                 "page_count": page_count,
                 "total_count": len(matches) * page_count,
             },
-        }
-    }.get(key, default)
+        },
+    }
+    resp.__getitem__ = lambda self, key: data[key]
+    resp.__bool__ = lambda self: True
+    resp.get = lambda key, default=None: data.get(key, default)
     return resp
 
 
