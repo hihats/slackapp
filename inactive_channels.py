@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from slack_rate_limit import handle_rate_limit
+from slack_conversations import fetch_channel_history
 
 # 定数定義
 INACTIVE_THRESHOLD_DAYS = 365  # 非アクティブと判定する日数
@@ -52,25 +52,12 @@ def load_channels_from_json(json_file_path):
 def get_channel_last_message_time(client, channel_id):
     """チャンネルの最新メッセージの投稿時刻を取得"""
     try:
-        response = handle_rate_limit(
-            client.conversations_history,
-            channel=channel_id,
-            limit=1,
-            include_all_metadata=False
-        )
-        
-        if not response or not response["ok"]:
-            return None
-        
-        messages = response.get("messages", [])
-        if not messages:
-            return None
-        
-        # 最新メッセージのタイムスタンプを取得
-        latest_message = messages[0]
-        timestamp = float(latest_message["ts"])
-        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
-    
+        for messages in fetch_channel_history(client, channel_id, limit=1):
+            if messages:
+                timestamp = float(messages[0]["ts"])
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        return None
+
     except SlackApiError as e:
         if e.response["error"] == "channel_not_found":
             print(f"    チャンネル {channel_id} が見つかりません（削除済みの可能性）")

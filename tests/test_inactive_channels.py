@@ -56,19 +56,11 @@ class TestLoadChannelsFromJson:
 
 
 class TestGetChannelLastMessageTime:
-    def _make_response(self, messages):
-        resp = MagicMock()
-        data = {"ok": True, "messages": messages}
-        resp.__getitem__ = lambda self, key: data[key]
-        resp.__bool__ = lambda self: True
-        resp.get = lambda key, default=None: data.get(key, default)
-        return resp
-
-    @patch("inactive_channels.handle_rate_limit")
-    def test_returns_datetime_of_latest_message(self, mock_hrl):
+    @patch("inactive_channels.fetch_channel_history")
+    def test_returns_datetime_of_latest_message(self, mock_fetch):
         """最新メッセージのタイムスタンプを datetime で返す"""
         ts = "1700000000.000000"
-        mock_hrl.return_value = self._make_response([{"ts": ts}])
+        mock_fetch.return_value = iter([[{"ts": ts}]])
         client = MagicMock()
 
         result = get_channel_last_message_time(client, "C123")
@@ -76,30 +68,30 @@ class TestGetChannelLastMessageTime:
         assert isinstance(result, datetime)
         assert result == datetime.fromtimestamp(1700000000.0, tz=timezone.utc)
 
-    @patch("inactive_channels.handle_rate_limit")
-    def test_no_messages_returns_none(self, mock_hrl):
+    @patch("inactive_channels.fetch_channel_history")
+    def test_no_messages_returns_none(self, mock_fetch):
         """メッセージが空の場合は None"""
-        mock_hrl.return_value = self._make_response([])
+        mock_fetch.return_value = iter([[]])
         client = MagicMock()
 
         assert get_channel_last_message_time(client, "C123") is None
 
-    @patch("inactive_channels.handle_rate_limit")
-    def test_channel_not_found_returns_none(self, mock_hrl):
+    @patch("inactive_channels.fetch_channel_history")
+    def test_channel_not_found_returns_none(self, mock_fetch):
         """channel_not_found エラーで None"""
         error_resp = MagicMock()
         error_resp.__getitem__ = lambda self, key: "channel_not_found" if key == "error" else None
-        mock_hrl.side_effect = SlackApiError("not found", response=error_resp)
+        mock_fetch.side_effect = SlackApiError("not found", response=error_resp)
         client = MagicMock()
 
         assert get_channel_last_message_time(client, "C123") is None
 
-    @patch("inactive_channels.handle_rate_limit")
-    def test_not_in_channel_returns_none(self, mock_hrl):
+    @patch("inactive_channels.fetch_channel_history")
+    def test_not_in_channel_returns_none(self, mock_fetch):
         """not_in_channel エラーで None"""
         error_resp = MagicMock()
         error_resp.__getitem__ = lambda self, key: "not_in_channel" if key == "error" else None
-        mock_hrl.side_effect = SlackApiError("no access", response=error_resp)
+        mock_fetch.side_effect = SlackApiError("no access", response=error_resp)
         client = MagicMock()
 
         assert get_channel_last_message_time(client, "C123") is None
