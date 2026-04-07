@@ -7,6 +7,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import time
 
+from slack_conversations import fetch_all_thread_replies, fetch_channel_history, fetch_thread_replies
 from slack_search import build_query, handle_rate_limit, search_messages
 
 def parse_arguments():
@@ -127,10 +128,10 @@ def get_channels_with_mentions_from_search(client, mentioned_user_id, days_ago, 
             if not matches:
                 break
             print(f"  {len(matches)}件のメッセージを取得")
-            for msg in matches:
-                channel_info = msg.get("channel", {})
-                if channel_info.get("id"):
-                    channels_with_mentions.add(channel_info["id"])
+            channels_with_mentions.update(
+                msg["channel"]["id"] for msg in matches
+                if msg.get("channel", {}).get("id")
+            )
     except Exception as e:
         print(f"検索APIエラー: {e}")
         return set()
@@ -141,56 +142,36 @@ def get_channels_with_mentions_from_search(client, mentioned_user_id, days_ago, 
 def get_messages_with_mentions(client, channel_id, mentioned_user_id, days_ago):
     """指定したチャンネルから特定のユーザーへのメンションを含むメッセージを取得（スレッド内も含む）"""
     all_messages = []
-    
-    # 検索対象の期間を設定
+
     oldest_time = (datetime.now(timezone.utc) - timedelta(days=days_ago)).timestamp()
     mention_pattern = f"<@{mentioned_user_id}>"
-    
+
     try:
-        cursor = None
-        while True:
-            # チャンネルの履歴を取得
-            response = handle_rate_limit(
-                client.conversations_history,
-                channel=channel_id,
-                oldest=str(oldest_time),
-                limit=200,
-                cursor=cursor
-            )
-            
-            if not response or not response["ok"]:
-                break
-            
-            messages = response.get("messages", [])
+        for messages in fetch_channel_history(client, channel_id, oldest=oldest_time):
             if not messages:
                 break
-            
-            # メンションを含むメッセージを抽出（リスト内包表記を使用）
+
+            # メンションを含むメッセージを抽出
             mention_messages = [
                 message for message in messages
                 if mention_pattern in message.get("text", "")
             ]
             all_messages.extend(mention_messages)
-            
+
             # スレッドのあるメッセージに対して、スレッド内のメンションもチェック
-            # reply_count > 0 はスレッドの親メッセージを示す
-            for message in messages:
-                if message.get("reply_count", 0) > 0:
-                    thread_mentions = get_thread_mentions(client, channel_id, message["ts"], mention_pattern, oldest_time)
-                    all_messages.extend(thread_mentions)
-            
-            # 次のページがあるかチェック
-            response_metadata = response.get("response_metadata", {})
-            next_cursor = response_metadata.get("next_cursor")
-            
-            if not next_cursor:
-                break
-            
-            cursor = next_cursor
-            time.sleep(1.5)  # search.messages APIのレート制限対策（Tier 3: 50リクエスト/分）
-        
+            threaded_messages = [
+                message for message in messages
+                if message.get("reply_count", 0) > 0
+            ]
+            thread_mentions = [
+                mention
+                for message in threaded_messages
+                for mention in get_thread_mentions(client, channel_id, message["ts"], mention_pattern, oldest_time)
+            ]
+            all_messages.extend(thread_mentions)
+
         return all_messages
-    
+
     except SlackApiError as e:
         print(f"メッセージ取得エラー ({channel_id}): {e}")
         return []
@@ -198,29 +179,17 @@ def get_messages_with_mentions(client, channel_id, mentioned_user_id, days_ago):
 def get_thread_mentions(client, channel_id, thread_ts, mention_pattern, oldest_time):
     """スレッド内のメンションを含むメッセージを取得"""
     thread_mentions = []
-    
+
     try:
-        response = handle_rate_limit(
-            client.conversations_replies,
-            channel=channel_id,
-            ts=thread_ts,
-            limit=200
-        )
-        
-        if response and response["ok"]:
-            replies = response.get("messages", [])
-            # 全てのメッセージをチェック（親メッセージも含む）
-            for reply in replies:
-                # 期間内かつメンションを含むメッセージを抽出
-                # thread_tsフィールドがあるものは返信メッセージ
-                if (mention_pattern in reply.get("text", "") and
-                    "thread_ts" in reply):  # スレッド内の返信のみ（親メッセージは除外）
-                    thread_mentions.append(reply)
-    
+        for replies in fetch_thread_replies(client, channel_id, thread_ts, skip_parent=False):
+            thread_mentions.extend([
+                reply for reply in replies
+                if mention_pattern in reply.get("text", "") and "thread_ts" in reply
+            ])
+
     except SlackApiError as e:
         print(f"スレッド取得エラー ({channel_id}, {thread_ts}): {e}")
-    
-    time.sleep(1.5)  # conversations.replies APIのレート制限対策（Tier 3: 50リクエスト/分）
+
     return thread_mentions
 
 def check_user_reactions_and_replies(client, channel_id, message, mentioned_user_id):
@@ -249,50 +218,31 @@ def check_user_reactions_and_replies(client, channel_id, message, mentioned_user
             print(f"[DEBUG] message type: {'parent' if message.get('reply_count', 0) > 0 else 'reply'}")
             
             # スレッドの返信を取得
-            thread_response = handle_rate_limit(
-                client.conversations_replies,
-                channel=channel_id,
-                ts=thread_ts_to_check,
-                limit=200
-            )
-            
-            if thread_response and thread_response["ok"]:
-                replies = thread_response.get("messages", [])
-                print(f"[DEBUG] スレッド内メッセージ数: {len(replies)}")
-                
-                # 最初のメッセージは元のメッセージなのでスキップ
-                for i, reply in enumerate(replies[1:], 1):
-                    reply_user = reply.get("user", "")
-                    reply_text = reply.get("text", "")[:50]
-                    print(f"[DEBUG] 返信{i}: user={reply_user}")
-                    print(f"[DEBUG] 返信{i}テキスト: {reply_text}...")
-                    print(f"[DEBUG] 対象ユーザー({mentioned_user_id})と一致? {reply_user == mentioned_user_id}")
-                    
-                    if reply.get("user") == mentioned_user_id:
-                        print(f"[DEBUG] ✅ スレッド内返信を発見!")
-                        return True, "reply", reply.get("text", "")[:100]
-                
-                print(f"[DEBUG] ❌ スレッド内に対象ユーザーの返信なし")
-            else:
-                print(f"[DEBUG] スレッド取得失敗: {thread_response.get('error', '不明') if thread_response else 'レスポンスなし'}")
+            replies = fetch_all_thread_replies(client, channel_id, thread_ts_to_check, skip_parent=False)
+            print(f"[DEBUG] スレッド内メッセージ数: {len(replies)}")
+
+            # 最初のメッセージは元のメッセージなのでスキップ
+            for i, reply in enumerate(replies[1:], 1):
+                reply_user = reply.get("user", "")
+                reply_text = reply.get("text", "")[:50]
+                print(f"[DEBUG] 返信{i}: user={reply_user}")
+                print(f"[DEBUG] 返信{i}テキスト: {reply_text}...")
+                print(f"[DEBUG] 対象ユーザー({mentioned_user_id})と一致? {reply_user == mentioned_user_id}")
+
+                if reply.get("user") == mentioned_user_id:
+                    print(f"[DEBUG] ✅ スレッド内返信を発見!")
+                    return True, "reply", reply.get("text", "")[:100]
+
+            print(f"[DEBUG] ❌ スレッド内に対象ユーザーの返信なし")
         
         # 3. 直後の返信もチェック（スレッドでない場合）
         # 元のメッセージの直後24時間以内にメンションされたユーザーからの投稿があるかチェック
         message_time = float(message_ts)
         one_day_later = message_time + 3600 * 24  # 24時間後
         
-        recent_response = handle_rate_limit(
-            client.conversations_history,
-            channel=channel_id,
-            oldest=str(message_time),
-            latest=str(one_day_later),
-            limit=50
-        )
-        
-        if recent_response and recent_response["ok"]:
-            recent_messages = recent_response.get("messages", [])
+        for recent_messages in fetch_channel_history(client, channel_id, oldest=message_time, latest=one_day_later, limit=50):
             for recent_msg in recent_messages:
-                if (recent_msg.get("user") == mentioned_user_id and 
+                if (recent_msg.get("user") == mentioned_user_id and
                     float(recent_msg["ts"]) > message_time):
                     return True, "followup", recent_msg.get("text", "")[:100]
     
