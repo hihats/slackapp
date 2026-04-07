@@ -99,7 +99,8 @@ def fetch_thread_replies(
 
         if skip_parent and is_first_page and replies:
             replies = replies[1:]
-            is_first_page = False
+        # 最初の API 呼び出し後は、replies の有無に関わらず is_first_page を False にする
+        is_first_page = False
 
         yield replies
 
