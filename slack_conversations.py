@@ -9,7 +9,6 @@ import time
 from typing import Dict, Generator, List, Optional
 
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 
 from slack_rate_limit import handle_rate_limit
 
