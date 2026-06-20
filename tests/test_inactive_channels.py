@@ -1,7 +1,6 @@
 """Tests for inactive_channels module"""
 
 import json
-import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
