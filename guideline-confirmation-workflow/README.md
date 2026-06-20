@@ -11,12 +11,16 @@ slack run
 # 本番デプロイ
 slack install --environment deployed  # 管理者承認が必要
 slack deploy
-slack trigger create --trigger-def triggers/link_trigger.ts
 
-# 環境変数
+# トリガー作成（TOOL_NAME はトリガー名に埋め込まれるためローカル環境変数として事前設定が必要）
+export TOOL_NAME=<ツール名>
+slack trigger create --trigger-def triggers/link_trigger.ts
+# または: TOOL_NAME=<ツール名> slack trigger create --trigger-def triggers/link_trigger.ts
+
+# デプロイ済みアプリの環境変数（slack env add はデプロイ後のアプリ実行時に使用される）
 slack env add NOTIFY_USER_ID <通知先ユーザーID>
 slack env add ADMIN_CHANNEL <管理者チャンネルID>   # 任意
-slack env add TOOL_NAME <ツール名>                  # トリガー表示名に使用
+# ※ TOOL_NAME は slack trigger create 時にのみ参照され、アプリ実行時には不要なため slack env add は不要
 ```
 
 ## フロー
