@@ -71,7 +71,7 @@ class TestBuildQuery:
 def _make_slack_error(error_code, status_code=200, retry_after=1):
     """SlackApiError のモックを生成するヘルパー"""
     resp = MagicMock()
-    resp.__getitem__ = lambda self, key: error_code if key == "error" else None
+    resp.__getitem__.side_effect = lambda key: error_code if key == "error" else None
     resp.status_code = status_code
     resp.headers = {"Retry-After": str(retry_after)}
     return SlackApiError("error", resp)
@@ -115,7 +115,6 @@ class TestHandleRateLimit:
 
 def _mock_search_response(matches, page=1, page_count=1):
     """search_messages API レスポンスのモックを生成"""
-    resp = MagicMock()
     data = {
         "ok": True,
         "messages": {
@@ -127,9 +126,10 @@ def _mock_search_response(matches, page=1, page_count=1):
             },
         },
     }
-    resp.__getitem__ = lambda self, key: data[key]
-    resp.__bool__ = lambda self: True
-    resp.get = lambda key, default=None: data.get(key, default)
+    resp = MagicMock()
+    resp.__getitem__.side_effect = data.__getitem__
+    resp.__bool__.return_value = True
+    resp.get.side_effect = data.get
     return resp
 
 
