@@ -7,6 +7,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import time
 
+from slack_conversations import fetch_all_channel_history, fetch_all_thread_replies
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='特定のチャンネルの指定した日付の投稿とスレッドを全て取得します')
     parser.add_argument('--channel', type=str, required=True, help='チャンネルID')
@@ -73,70 +75,11 @@ def get_user_info(client, user_id):
 
 def get_channel_messages(client, channel_id, oldest, latest):
     """チャンネルのメッセージを取得"""
-    messages = []
-    try:
-        cursor = None
-        while True:
-            response = client.conversations_history(
-                channel=channel_id,
-                oldest=str(oldest),
-                latest=str(latest),
-                limit=200,
-                cursor=cursor
-            )
-            
-            if not response["ok"]:
-                print(f"メッセージ取得エラー: {response.get('error', 'Unknown error')}")
-                break
-            
-            batch_messages = response.get("messages", [])
-            messages.extend(batch_messages)
-            
-            # 次のページがあるかチェック
-            if response.get("has_more") and response.get("response_metadata", {}).get("next_cursor"):
-                cursor = response["response_metadata"]["next_cursor"]
-                time.sleep(0.5)  # APIレート制限対策
-            else:
-                break
-                
-    except SlackApiError as e:
-        print(f"メッセージ取得エラー: {e}")
-    
-    return messages
+    return fetch_all_channel_history(client, channel_id, oldest=oldest, latest=latest)
 
 def get_thread_replies(client, channel_id, thread_ts):
-    """スレッドの返信を取得"""
-    replies = []
-    try:
-        cursor = None
-        while True:
-            response = client.conversations_replies(
-                channel=channel_id,
-                ts=thread_ts,
-                limit=200,
-                cursor=cursor
-            )
-            
-            if not response["ok"]:
-                print(f"スレッド取得エラー: {response.get('error', 'Unknown error')}")
-                break
-            
-            batch_replies = response.get("messages", [])
-            # 最初のメッセージ（親メッセージ）は除外
-            if batch_replies:
-                replies.extend(batch_replies[1:] if cursor is None else batch_replies)
-            
-            # 次のページがあるかチェック
-            if response.get("has_more") and response.get("response_metadata", {}).get("next_cursor"):
-                cursor = response["response_metadata"]["next_cursor"]
-                time.sleep(0.5)  # APIレート制限対策
-            else:
-                break
-                
-    except SlackApiError as e:
-        print(f"スレッド取得エラー: {e}")
-    
-    return replies
+    """スレッドの返信を取得（親メッセージ除外）"""
+    return fetch_all_thread_replies(client, channel_id, thread_ts)
 
 def format_message_data(message, channel_info, user_cache, message_type="message"):
     """メッセージデータをフォーマット"""
@@ -297,7 +240,7 @@ def main():
                 all_data.append(formatted_reply)
                 thread_messages.append(reply)
             
-            time.sleep(0.5)  # APIレート制限対策
+            time.sleep(1.5)  # conversations.replies APIのレート制限対策（Tier 3: 50リクエスト/分）
     
     # 結果を保存
     if all_data:

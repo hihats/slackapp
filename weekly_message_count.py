@@ -17,6 +17,55 @@ from typing import Dict, List
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from slack_conversations import fetch_all_channel_history, fetch_all_thread_replies
+
+
+def _extract_rich_text_elements(elements: list) -> str:
+    """rich_text ブロックの elements を再帰的にテキスト化"""
+    parts = []
+    for elem in elements:
+        if isinstance(elem, dict):
+            if "text" in elem:
+                parts.append(elem["text"])
+            if "elements" in elem:
+                parts.append(_extract_rich_text_elements(elem["elements"]))
+    return " ".join(parts)
+
+
+def extract_full_text(msg: dict) -> str:
+    """メッセージの text / blocks / attachments からテキストを結合して返す"""
+    parts = []
+
+    # text フィールド
+    text = msg.get("text") or ""
+    if text:
+        parts.append(text)
+
+    # blocks フィールド
+    for block in msg.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+        if btype in ("section", "header"):
+            block_text = block.get("text")
+            if isinstance(block_text, dict):
+                parts.append(block_text.get("text", ""))
+        elif btype == "rich_text":
+            for elem in block.get("elements") or []:
+                if isinstance(elem, dict) and "elements" in elem:
+                    parts.append(_extract_rich_text_elements(elem["elements"]))
+
+    # attachments フィールド
+    for att in msg.get("attachments") or []:
+        if not isinstance(att, dict):
+            continue
+        for key in ("text", "fallback", "pretext"):
+            val = att.get(key) or ""
+            if val:
+                parts.append(val)
+
+    return " ".join(parts)
+
 
 def parse_arguments():
     """コマンドライン引数をパースする"""
@@ -28,10 +77,11 @@ def parse_arguments():
     parser.add_argument("--keyword", required=True, help="検索キーワード（完全一致）")
     parser.add_argument("--days", type=int, default=30, help="検索する過去日数 (デフォルト: 30)")
     parser.add_argument("--output", required=True, help="出力JSONファイルパス")
+    parser.add_argument("--no-replies", action="store_true", help="スレッド返信を除外し親メッセージのみ集計")
     return parser.parse_args()
 
 
-def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) -> List[Dict]:
+def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int, include_replies: bool = True) -> List[Dict]:
     """
     conversations.history + conversations.replies でメッセージを取得し、
     キーワードフィルタ＋重複排除して返す。
@@ -41,31 +91,7 @@ def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) 
     keyword_lower = keyword.lower()
 
     # conversations.history で期間内の全メッセージ取得
-    all_channel_messages = []
-    try:
-        cursor = None
-        while True:
-            response = client.conversations_history(
-                channel=channel_id,
-                oldest=str(oldest),
-                latest=str(latest),
-                limit=200,
-                cursor=cursor
-            )
-            if not response["ok"]:
-                print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
-                sys.exit(1)
-
-            all_channel_messages.extend(response.get("messages", []))
-
-            if response.get("has_more") and response.get("response_metadata", {}).get("next_cursor"):
-                cursor = response["response_metadata"]["next_cursor"]
-                time.sleep(1.5)  # Tier 3
-            else:
-                break
-    except SlackApiError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    all_channel_messages = fetch_all_channel_history(client, channel_id, oldest=oldest, latest=latest)
 
     print(f"Fetched {len(all_channel_messages)} messages from channel history.")
 
@@ -75,7 +101,7 @@ def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) 
 
     for msg in all_channel_messages:
         # 親メッセージのチェック
-        text = msg.get("text", "")
+        text = extract_full_text(msg)
         ts = msg.get("ts")
         if keyword_lower in text.lower():
             normalized_text = text.strip().lower()
@@ -84,38 +110,20 @@ def fetch_messages(client: WebClient, channel_id: str, keyword: str, days: int) 
                 messages.append(msg)
 
         # スレッドがある場合は返信も検索
-        if msg.get("reply_count", 0) > 0:
+        if include_replies and msg.get("reply_count", 0) > 0:
             try:
-                reply_cursor = None
-                while True:
-                    reply_response = client.conversations_replies(
-                        channel=channel_id,
-                        ts=ts,
-                        oldest=str(oldest),
-                        latest=str(latest),
-                        limit=200,
-                        cursor=reply_cursor
-                    )
-                    if not reply_response["ok"]:
-                        break
+                replies = fetch_all_thread_replies(
+                    client, channel_id, ts, oldest=oldest, latest=latest
+                )
+                for reply in replies:
+                    reply_text = extract_full_text(reply)
+                    if keyword_lower in reply_text.lower():
+                        normalized_reply = reply_text.strip().lower()
+                        if normalized_reply not in seen_texts:
+                            seen_texts.add(normalized_reply)
+                            messages.append(reply)
 
-                    replies = reply_response.get("messages", [])
-                    # 最初のページでは親メッセージ（index 0）をスキップ
-                    for reply in (replies[1:] if reply_cursor is None else replies):
-                        reply_text = reply.get("text", "")
-                        if keyword_lower in reply_text.lower():
-                            normalized_reply = reply_text.strip().lower()
-                            if normalized_reply not in seen_texts:
-                                seen_texts.add(normalized_reply)
-                                messages.append(reply)
-
-                    if reply_response.get("has_more") and reply_response.get("response_metadata", {}).get("next_cursor"):
-                        reply_cursor = reply_response["response_metadata"]["next_cursor"]
-                        time.sleep(1.5)  # Tier 3
-                    else:
-                        break
-
-                time.sleep(1.5)  # Tier 3
+                time.sleep(1.5)  # Tier 3: スレッド間の追加待機
             except SlackApiError as e:
                 print(f"Warning: Failed to fetch replies for thread {ts}: {e}", file=sys.stderr)
 
@@ -204,10 +212,11 @@ def main():
     # Slack クライアントを初期化
     client = WebClient(token=args.token)
 
+    include_replies = not args.no_replies
     print(f"Searching for messages containing '{args.keyword}' in channel {args.channel}...")
-    print(f"Search period: last {args.days} days")
+    print(f"Search period: last {args.days} days, replies: {'included' if include_replies else 'excluded'}")
 
-    messages = fetch_messages(client, args.channel, args.keyword, args.days)
+    messages = fetch_messages(client, args.channel, args.keyword, args.days, include_replies=include_replies)
 
     if not messages:
         print(f"\nNo messages found containing '{args.keyword}' in the specified period.")

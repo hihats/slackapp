@@ -6,29 +6,10 @@ from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from slack_conversations import fetch_channel_history
+
 # 定数定義
 INACTIVE_THRESHOLD_DAYS = 365  # 非アクティブと判定する日数
-
-def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
-    """レート制限に対応するためのラッパー関数"""
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except SlackApiError as e:
-            if e.response["error"] == "ratelimited":
-                if attempt == max_retries - 1:
-                    print(f"最大再試行回数に達しました: {e}")
-                    raise
-                            # HTTP 429 Too Many Requestsの場合
-                if e.response.status_code == 429:
-                    retry_after = int(e.response.headers.get('Retry-After', 30))
-                    print(f"レート制限に達しました。{retry_after:.2f}秒待機します... (試行 {attempt + 1}/{max_retries})")
-                    time.sleep(retry_after)
-
-            else:
-                raise
-    
-    return None
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -71,25 +52,12 @@ def load_channels_from_json(json_file_path):
 def get_channel_last_message_time(client, channel_id):
     """チャンネルの最新メッセージの投稿時刻を取得"""
     try:
-        response = handle_rate_limit(
-            client.conversations_history,
-            channel=channel_id,
-            limit=1,
-            include_all_metadata=False
-        )
-        
-        if not response or not response["ok"]:
-            return None
-        
-        messages = response.get("messages", [])
-        if not messages:
-            return None
-        
-        # 最新メッセージのタイムスタンプを取得
-        latest_message = messages[0]
-        timestamp = float(latest_message["ts"])
-        return datetime.fromtimestamp(timestamp)
-    
+        for messages in fetch_channel_history(client, channel_id, limit=1):
+            if messages:
+                timestamp = float(messages[0]["ts"])
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        return None
+
     except SlackApiError as e:
         if e.response["error"] == "channel_not_found":
             print(f"    チャンネル {channel_id} が見つかりません（削除済みの可能性）")
