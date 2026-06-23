@@ -14,9 +14,7 @@
       "Read(*.md)",
       "Read(*.txt)",
       "Read(outputs/*)",
-      "Write(*.py)",
-      "Write(outputs/*)",
-      "Edit(*.py)"
+      "Write(outputs/*)"
     ],
     "deny": [
       "Bash(rm -rf *)",
