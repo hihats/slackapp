@@ -14,9 +14,7 @@
       "Read(*.md)",
       "Read(*.txt)",
       "Read(outputs/*)",
-      "Write(*.py)",
       "Edit(outputs/*)",
-      "Edit(*.py)",
       "Bash(source .envrc)",
       "Bash(docker run --rm --volume $PWD:/app slackapp multi_post.py *)",
       "Bash(docker run --rm --volume $PWD:/app slackapp collect_daily.py *)"
