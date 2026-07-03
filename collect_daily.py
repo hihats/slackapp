@@ -33,9 +33,11 @@ PII_FIELDS = {"emailAddress", "accountName"}
 def parse_arguments():
     parser = argparse.ArgumentParser(description="当日の業務データを収集して中間JSONを出力する")
     parser.add_argument("--date", type=str, help="対象日 YYYY-MM-DD（省略時はJST当日）")
-    parser.add_argument("--token", type=str, default=os.environ.get("SLACK_USER_TOKEN"),
-                        help="Slackユーザートークン（search:read 必須／既定は環境変数 SLACK_USER_TOKEN）")
+    parser.add_argument("--token", type=str, default=os.environ.get("SLACK_TOKEN"),
+                        help="Slackユーザートークン（search:read 必須／既定は環境変数 SLACK_TOKEN）")
     parser.add_argument("--output-dir", type=str, default="outputs/daily", help="出力先ディレクトリ")
+    parser.add_argument("--source", choices=["all", "slack", "claude"], default="all",
+                        help="収集対象。slack=Slack(Docker実行想定) / claude=Claude履歴(ホスト実行想定) / all=両方")
     return parser.parse_args()
 
 
@@ -44,6 +46,16 @@ def resolve_date(date_str):
     if date_str:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     return datetime.now(JST).date()
+
+
+# --source ごとに部分収集結果を別ファイルに分けることで、
+# Slack(Docker) と Claude履歴(ホスト) を別プロセスで収集し後段でマージできる
+_SOURCE_SUFFIX = {"all": "raw", "slack": "slack", "claude": "claude"}
+
+
+def output_filename(source, target):
+    """--source と対象日から中間JSONのファイル名を決める。"""
+    return f"{target.isoformat()}.{_SOURCE_SUFFIX[source]}.json"
 
 
 def in_target_day(dt_jst, target):
@@ -81,9 +93,25 @@ def collect_slack(token, target):
     return {"user_id": user_id, "channels": list(channels.values())}
 
 
+def _user_prompt_text(o):
+    """type:user 行が実プロンプト(文字列)ならその本文を、そうでなければ None を返す。
+
+    content が list の行(tool_result 等)や isMeta 行はユーザーの入力ではないため除外する。
+    """
+    if o.get("type") != "user" or o.get("isMeta"):
+        return None
+    content = (o.get("message") or {}).get("content")
+    return content if isinstance(content, str) else None
+
+
 def collect_claude_code(target):
-    """Claude Code トランスクリプト(*.jsonl)から当日分をセッション単位に集約する。"""
-    sessions = {}
+    """Claude Code トランスクリプト(*.jsonl)から当日分をセッション単位に集約する。
+
+    ai-title 行は timestamp を持たないため、日付に依らず sessionId 単位で先に集める。
+    当日のタイムスタンプを持つ行があったセッションのみを結果に含め、title を後付けする。
+    """
+    sessions = {}   # 当日活動のあったセッション
+    titles = {}     # sessionId -> aiTitle（timestamp 非依存で収集）
     for path in glob.glob(str(CLAUDE_CODE_ROOT / "*/*.jsonl")):
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -91,12 +119,18 @@ def collect_claude_code(target):
                     o = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+
+                if o.get("type") == "ai-title" and o.get("aiTitle"):
+                    titles[o.get("sessionId")] = o["aiTitle"]
+                    continue
+
                 ts = o.get("timestamp")
                 if not ts:
                     continue
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(JST)
                 if not in_target_day(dt, target):
                     continue
+
                 sid = o.get("sessionId", path)
                 s = sessions.setdefault(sid, {
                     "session_id": sid,
@@ -109,10 +143,13 @@ def collect_claude_code(target):
                     s["cwd"] = o["cwd"]
                 if o.get("gitBranch"):
                     s["git_branch"] = o["gitBranch"]
-                if o.get("type") == "ai-title" and o.get("aiTitle"):
-                    s["title"] = o["aiTitle"]
-                if o.get("type") == "last-prompt" and o.get("lastPrompt"):
-                    s["prompts"].append(o["lastPrompt"])
+
+                prompt = _user_prompt_text(o)
+                if prompt:
+                    s["prompts"].append(prompt)
+
+    for sid, s in sessions.items():
+        s["title"] = titles.get(sid)
     return list(sessions.values())
 
 
@@ -147,28 +184,31 @@ def collect_cowork(target):
 
 def main():
     args = parse_arguments()
-    if not args.token:
-        raise SystemExit("Slackトークンが未指定です（--token または環境変数 SLACK_USER_TOKEN）")
-
     target = resolve_date(args.date)
 
-    data = {
-        "date": target.isoformat(),
-        "slack": collect_slack(args.token, target),
-        "claude_code": collect_claude_code(target),
-        "cowork": collect_cowork(target),
-    }
+    data = {"date": target.isoformat()}
+
+    if args.source in ("all", "slack"):
+        if not args.token:
+            raise SystemExit("Slackトークンが未指定です（--token または環境変数 SLACK_TOKEN）")
+        data["slack"] = collect_slack(args.token, target)
+
+    if args.source in ("all", "claude"):
+        data["claude_code"] = collect_claude_code(target)
+        data["cowork"] = collect_cowork(target)
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{target.isoformat()}.raw.json"
+    out_path = out_dir / output_filename(args.source, target)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     print(f"収集完了: {out_path}")
-    print(f"  Slack: {len(data['slack']['channels'])} チャンネル/DM")
-    print(f"  Claude Code: {len(data['claude_code'])} セッション")
-    print(f"  Cowork: {len(data['cowork'])} セッション")
+    if "slack" in data:
+        print(f"  Slack: {len(data['slack']['channels'])} チャンネル/DM")
+    if "claude_code" in data:
+        print(f"  Claude Code: {len(data['claude_code'])} セッション")
+        print(f"  Cowork: {len(data['cowork'])} セッション")
 
 
 if __name__ == "__main__":
