@@ -33,6 +33,22 @@ python -m pytest tests/ -v
 - Each function should have a single, clear responsibility
 - When using search.messages, use the shared module `slack_search.py`
 
+## daily-report スキル / collect_daily.py
+
+日次業務まとめ（`/daily-report`）の収集層。`collect_daily.py` の `--source` で対象を分ける。
+
+- **実行環境は必ず分ける**：Slack API を触る処理（`--source slack` / `multi_post.py`）は Docker、
+  Claude 履歴の読み取り（`--source claude`）はホストの python で実行する。
+  履歴はホスト固有パスにありコンテナ内に無いため、Docker では読めない（マウント＋home整合が必要で非推奨）。
+  - Claude Code: `~/.claude/projects/*/*.jsonl`（`timestamp` は UTC の ISO 文字列）
+  - Cowork: `~/Library/Application Support/Claude/local-agent-mode-sessions/**/local_*.json`
+    （`createdAt`/`lastActivityAt` は **epoch ミリ秒**。`backup` を含むファイルは除外）
+- **日付境界は JST** で判定する（UTC→JST 変換後に対象日と比較）。
+- **PII は収集・出力しない**：Cowork の `emailAddress`/`accountName`（`PII_FIELDS`）は取り込まない。
+  まとめ・Slack 投稿にも顧客個人情報・未公表情報を含めない（組織方針）。
+- **出力ファイル名**は `output_filename(source, target)`：slack→`.slack.json` / claude→`.claude.json` / all→`.raw.json`。
+- **Slack トークン**は `--token $SLACK_TOKEN`（既定 env `SLACK_TOKEN`、`search:read` 必須）で渡す。
+
 ## API Gotchas
 
 ### Slack API Reference
