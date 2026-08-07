@@ -7,22 +7,14 @@ import time
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='特定のテキストを複数のSlackチャンネルに同時投稿します')
+    parser.add_argument('--token', type=str, required=True, help='Slack APIトークン')
     parser.add_argument('--message', type=str, required=True, help='投稿するメッセージ')
     parser.add_argument('--channels', type=str, nargs='+', required=True, help='投稿先チャンネルID（複数指定可能）')
     parser.add_argument('--dry-run', action='store_true', help='実際に投稿せず、プレビューのみ表示')
+    parser.add_argument('-y', '--yes', action='store_true', help='確認プロンプトをスキップ')
     parser.add_argument('--delay', type=float, default=1.0, help='チャンネル間の投稿間隔（秒）')
     parser.add_argument('--thread-ts', type=str, help='スレッドのタイムスタンプ（スレッドに返信する場合）')
     return parser.parse_args()
-
-def get_slack_token():
-    """環境変数からSlackトークンを取得"""
-    token = os.environ.get('SLACK_TOKEN')
-    if not token:
-        print("エラー: 環境変数SLACK_TOKENが設定されていません")
-        print("以下のコマンドでトークンを設定してください:")
-        print("export SLACK_TOKEN='your-slack-token'")
-        return None
-    return token
 
 def get_channel_info(client, channel_id):
     """チャンネル情報を取得"""
@@ -95,13 +87,8 @@ def confirm_posting(message, channels):
 def main():
     args = parse_arguments()
     
-    # Slackトークンを取得
-    token = get_slack_token()
-    if not token:
-        return
-    
     # Slack APIクライアントを初期化
-    client = WebClient(token=token)
+    client = WebClient(token=args.token)
     
     # チャンネルの妥当性を確認
     print("チャンネル情報を確認中...")
@@ -133,7 +120,7 @@ def main():
         return
     
     # 投稿確認
-    if not confirm_posting(args.message, valid_channels):
+    if not args.yes and not confirm_posting(args.message, valid_channels):
         print("投稿をキャンセルしました。")
         return
     
