@@ -7,7 +7,7 @@ import time
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='特定のテキストを複数のSlackチャンネルに同時投稿します')
-    parser.add_argument('--token', type=str, required=True, help='Slack APIトークン')
+    parser.add_argument('--token', type=str, help='Slack APIトークン（未指定時は環境変数SLACK_TOKENを使用）')
     parser.add_argument('--message', type=str, required=True, help='投稿するメッセージ')
     parser.add_argument('--channels', type=str, nargs='+', required=True, help='投稿先チャンネルID（複数指定可能）')
     parser.add_argument('--dry-run', action='store_true', help='実際に投稿せず、プレビューのみ表示')
@@ -86,9 +86,14 @@ def confirm_posting(message, channels):
 
 def main():
     args = parse_arguments()
-    
+
+    token = args.token or os.environ.get('SLACK_TOKEN')
+    if not token:
+        print("エラー: --token 引数または環境変数SLACK_TOKENでトークンを指定してください")
+        return
+
     # Slack APIクライアントを初期化
-    client = WebClient(token=args.token)
+    client = WebClient(token=token)
     
     # チャンネルの妥当性を確認
     print("チャンネル情報を確認中...")
