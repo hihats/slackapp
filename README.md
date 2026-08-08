@@ -113,9 +113,9 @@ docker run --volume $PWD:/app slackapp inactive_channels.py \
   --output outputs/inactive_channels_$(date +%Y%m%d).json
 ```
 
-### 日次まとめ用の Slack 収集（collect_daily.py）
+### 日付指定収集（collect_daily.py）
 
-当日自分が投稿したチャンネル/DM を収集して、要約用の中間 JSON を出力する。
+指定日に特定ユーザーが投稿したチャンネル/DM を収集して、中間 JSON を出力
 
 ```bash
 docker run --volume $PWD:/app slackapp collect_daily.py \
@@ -123,25 +123,15 @@ docker run --volume $PWD:/app slackapp collect_daily.py \
 # → outputs/daily/2026-07-01.slack.json
 ```
 
-日次・週次のまとめ本体（`/daily-report`・`/weekly-report` スキル、Claude 履歴・GitHub・
-カレンダー/Meet議事録の収集、要約・投稿のオーケストレーション）
-[action_report](https://github.com/hihats/action_report) リポジトリ
- から Docker イメージとして呼び出される（`--output-dir` で出力先を指定）。
+### 役割サマリ
 
-### 役割サマリ（role-summary スキル）
-
-指定した Slack ユーザーの発言頻度（`from:`）と他者からの被メンション頻度（自己メンション除く）を
-チャンネル横断で集計し、担当領域の広さ・他者からの依存度を示す Markdown レポートを生成する。
-経営への説明資料など、本人の役割の大きさを裏付ける用途を想定する。
-Claude Code のスキル `/role-summary` として実行する。
+指定したユーザーの発言頻度（`from:`）と他者からの被メンション頻度をチャンネル横断で集計
 
 ```bash
 docker run --volume $PWD:/app slackapp collect_role_summary.py \
   --user hisahiro.tsukamoto --days 180 --token $SLACK_TOKEN
 # → outputs/role_summary/<user_id>_180d.json
 ```
-
-本人の同意を前提とした運用とし、雑談・業務外チャンネルは担当領域の推定材料から除外する。
 
 ## コマンドライン引数
 
