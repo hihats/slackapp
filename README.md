@@ -173,8 +173,8 @@ docker run --volume $PWD:/app slackapp collect_role_summary.py \
 | `message_reactions.py` | メッセージのリアクション取得 |
 | `get_all_channels.py` | 全チャンネル一覧取得 |
 | `inactive_channels.py` | 非アクティブチャンネル検出 |
-| `collect_daily.py` | 日次業務まとめ用の Slack 収集（他ソースの収集・要約は action_report リポジトリ） |
-| `collect_role_summary.py` | 指定ユーザーの発言・被メンションの収集（役割サマリ用） |
+| `collect_daily.py` | 日別収集 |
+| `collect_role_summary.py` | 指定ユーザーの発言・被メンションの収集 |
 
 ### Docker 環境
 
