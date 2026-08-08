@@ -14,16 +14,17 @@
       "Read(*.md)",
       "Read(*.txt)",
       "Read(outputs/*)",
-      "Write(*.py)",
-      "Write(outputs/*)",
-      "Edit(*.py)"
+      "Edit(outputs/*)",
+      "Bash(source .envrc)",
+      "Bash(docker run --rm --volume $PWD:/app slackapp multi_post.py *)",
+      "Bash(docker run --rm --volume $PWD:/app slackapp collect_daily.py *)"
     ],
     "deny": [
       "Bash(rm -rf *)",
       "Bash(curl *)",
       "Read(.env*)",
       "Read(*/secrets/**)",
-      "Write(.env*)"
+      "Edit(.env*)"
     ]
   },
   "env": {

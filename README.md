@@ -113,18 +113,40 @@ docker run --volume $PWD:/app slackapp inactive_channels.py \
   --output outputs/inactive_channels_$(date +%Y%m%d).json
 ```
 
+### 日付指定収集（collect_daily.py）
+
+指定日に特定ユーザーが投稿したチャンネル/DM を収集して、中間 JSON を出力
+
+```bash
+docker run --volume $PWD:/app slackapp collect_daily.py \
+  --source slack --date 2026-07-01 --token $SLACK_TOKEN
+# → outputs/daily/2026-07-01.slack.json
+```
+
+### 役割サマリ
+
+指定したユーザーの発言頻度（`from:`）と他者からの被メンション頻度をチャンネル横断で集計
+
+```bash
+docker run --volume $PWD:/app slackapp collect_role_summary.py \
+  --user hisahiro.tsukamoto --days 180 --token $SLACK_TOKEN
+# → outputs/role_summary/<user_id>_180d.json
+```
+
 ## コマンドライン引数
 
 | 引数 | 説明 | 対象スクリプト |
 |------|------|----------------|
 | `--token` | Slack API トークン | 多数（channel_daily_posts は環境変数から取得） |
 | `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts |
-| `--user` | Slack ユーザーID | get_all_channels |
+| `--user` | Slack ユーザーID or 表示名 | get_all_channels, collect_role_summary |
 | `--mentioned-user` | メンション先ユーザーID | unanswered_mentions |
 | `--channels-json` | all_channels.json のパス | inactive_channels |
 | `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count |
-| `--date` | 取得日付（YYYY-MM-DD） | channel_daily_posts |
-| `--days` | 遡る日数（デフォルト: 30） | 多数 |
+| `--date` | 取得日付（YYYY-MM-DD） | channel_daily_posts, collect_daily |
+| `--source` | 収集対象（slack のみ。互換性のため残置） | collect_daily |
+| `--output-dir` | 中間JSONの出力先（デフォルト: outputs/daily） | collect_daily |
+| `--days` | 遡る日数（デフォルト: 30。collect_role_summary は180） | 多数 |
 | `--months` | 遡る月数（デフォルト: 3） | monthly_message_count |
 | `--output` | 出力ファイルパス | 全スクリプト |
 | `--format` | 出力形式 json/csv（デフォルト: json） | channel_daily_posts |
@@ -151,6 +173,8 @@ docker run --volume $PWD:/app slackapp inactive_channels.py \
 | `message_reactions.py` | メッセージのリアクション取得 |
 | `get_all_channels.py` | 全チャンネル一覧取得 |
 | `inactive_channels.py` | 非アクティブチャンネル検出 |
+| `collect_daily.py` | 日別収集 |
+| `collect_role_summary.py` | 指定ユーザーの発言・被メンションの収集 |
 
 ### Docker 環境
 
