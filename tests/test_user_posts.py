@@ -11,6 +11,7 @@ from user_posts import (
     build_user_query,
     fetch_user_posts,
     is_thread_reply,
+    permalink_thread_ts,
     format_post,
 )
 
@@ -101,6 +102,25 @@ class TestFetchUserPosts:
         posts = fetch_user_posts(MagicMock(), "from:<@U123>")
 
         assert len(posts) == 2
+
+
+# --- permalink_thread_ts ---
+
+
+class TestPermalinkThreadTs:
+    def test_returns_thread_ts_from_query(self):
+        """permalink の thread_ts クエリを返す"""
+        match = {"permalink": "https://x.slack.com/archives/C1/p200000002?thread_ts=100.000001&cid=C1"}
+        assert permalink_thread_ts(match) == "100.000001"
+
+    def test_returns_none_without_thread_ts(self):
+        """thread_ts クエリがなければ None"""
+        match = {"permalink": "https://x.slack.com/archives/C1/p100000001"}
+        assert permalink_thread_ts(match) is None
+
+    def test_returns_none_without_permalink(self):
+        """permalink がなければ None"""
+        assert permalink_thread_ts({}) is None
 
 
 # --- is_thread_reply ---

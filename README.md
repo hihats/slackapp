@@ -151,17 +151,39 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py
 
 `--days` と `--after`/`--before` は同時に指定できない。トークンには `search:read` スコープが必要。
 
+### 質問と回答のセット収集
+
+指定したユーザーの発言から、本人が答えた質問（answerer）と、本人の質問への回答（asker）を集める。
+スレッドの親を質問、返信を回答とみなす。スレッドに属さない投稿は `standalone_posts` に残し、
+「回答かどうか」の判定と Markdown 化は `/qa-pairs` スキルが行う。
+
+```bash
+# スレッドの Q&A とスレッド外の投稿を集める
+docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp qa_pairs.py collect \
+  --user hihats --days 30
+# → outputs/qa_pairs/<user_id>.json
+
+# 指定した投稿の直前 N 件を取る（targets: [{"channel_id", "ts"}]）
+docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp qa_pairs.py context \
+  --targets outputs/qa_pairs/<user_id>_targets.json --limit 20
+# → outputs/qa_pairs/context.json
+```
+
+トークンには `search:read` に加えて `channels:history` / `groups:history` / `im:history` / `mpim:history` が必要。
+スレッドを1件ずつ取るため、スレッド数 × 約1.5秒かかる。
+
 ## コマンドライン引数
 
 | 引数 | 説明 | 対象スクリプト |
 |------|------|----------------|
 | `--token` | Slack API トークン | 多数（channel_daily_posts は環境変数から取得） |
-| `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts, user_posts |
-| `--user` | Slack ユーザーID or 表示名 | get_all_channels, collect_role_summary, user_posts |
+| `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts, user_posts, qa_pairs |
+| `--user` | Slack ユーザーID or 表示名 | get_all_channels, collect_role_summary, user_posts, qa_pairs |
 | `--mentioned-user` | メンション先ユーザーID | unanswered_mentions |
 | `--channels-json` | all_channels.json のパス | inactive_channels |
-| `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count, user_posts |
-| `--after` / `--before` | 期間の開始日・終了日（YYYY-MM-DD、その日を含む。--days と併用不可） | user_posts |
+| `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count, user_posts, qa_pairs |
+| `--after` / `--before` | 期間の開始日・終了日（YYYY-MM-DD、その日を含む。--days と併用不可） | user_posts, qa_pairs |
+| `--targets` | 直前を取る投稿の一覧 JSON（[{"channel_id", "ts"}]） | qa_pairs context |
 | `--date` | 取得日付（YYYY-MM-DD） | channel_daily_posts, collect_daily |
 | `--source` | 収集対象（slack のみ。互換性のため残置） | collect_daily |
 | `--output-dir` | 中間JSONの出力先（デフォルト: outputs/daily） | collect_daily |
@@ -171,6 +193,7 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py
 | `--format` | 出力形式 json/csv（デフォルト: json） | channel_daily_posts |
 | `--use-search-api` | Search API で高速検索 | unanswered_mentions |
 | `--limit` | 処理チャンネル数上限 | テスト用 |
+| `--limit` | 遡る件数（デフォルト: 20） | qa_pairs context |
 | `--stopwords` | ストップワードファイル | wordclouds |
 | `--min_freq` | 最小出現回数（デフォルト: 2） | wordclouds |
 | `--positive_boost` | ポジティブワード倍率（デフォルト: 1.5） | wordclouds |
@@ -195,6 +218,7 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py
 | `collect_daily.py` | 日別収集 |
 | `collect_role_summary.py` | 指定ユーザーの発言・被メンションの収集 |
 | `user_posts.py` | 指定ユーザーの発言だけを取得 |
+| `qa_pairs.py` | 指定ユーザーの発言から質問と回答のセットを収集 |
 
 ### Docker 環境
 
