@@ -133,16 +133,35 @@ docker run --volume $PWD:/app slackapp collect_role_summary.py \
 # → outputs/role_summary/<user_id>_180d.json
 ```
 
+### 指定ユーザーの発言取得
+
+指定したユーザーの発言（`from:`）だけを JSON で取り出す。
+各件には日時(JST)・チャンネル・本文・permalink・スレッド返信かどうかが入る。
+
+```bash
+# 過去30日、全チャンネル
+docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py \
+  --user hisahiro.tsukamoto
+
+# 期間（両端の日を含む）・チャンネル・キーワードで絞る
+docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py \
+  --user hisahiro.tsukamoto --after 2026-10-01 --before 2026-10-07 \
+  --channel C789012 --keyword リリース --output outputs/user_posts.json
+```
+
+`--days` と `--after`/`--before` は同時に指定できない。トークンには `search:read` スコープが必要。
+
 ## コマンドライン引数
 
 | 引数 | 説明 | 対象スクリプト |
 |------|------|----------------|
 | `--token` | Slack API トークン | 多数（channel_daily_posts は環境変数から取得） |
-| `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts |
-| `--user` | Slack ユーザーID or 表示名 | get_all_channels, collect_role_summary |
+| `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts, user_posts |
+| `--user` | Slack ユーザーID or 表示名 | get_all_channels, collect_role_summary, user_posts |
 | `--mentioned-user` | メンション先ユーザーID | unanswered_mentions |
 | `--channels-json` | all_channels.json のパス | inactive_channels |
-| `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count |
+| `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count, user_posts |
+| `--after` / `--before` | 期間の開始日・終了日（YYYY-MM-DD、その日を含む。--days と併用不可） | user_posts |
 | `--date` | 取得日付（YYYY-MM-DD） | channel_daily_posts, collect_daily |
 | `--source` | 収集対象（slack のみ。互換性のため残置） | collect_daily |
 | `--output-dir` | 中間JSONの出力先（デフォルト: outputs/daily） | collect_daily |
@@ -175,6 +194,7 @@ docker run --volume $PWD:/app slackapp collect_role_summary.py \
 | `inactive_channels.py` | 非アクティブチャンネル検出 |
 | `collect_daily.py` | 日別収集 |
 | `collect_role_summary.py` | 指定ユーザーの発言・被メンションの収集 |
+| `user_posts.py` | 指定ユーザーの発言だけを取得 |
 
 ### Docker 環境
 
