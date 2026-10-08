@@ -129,7 +129,7 @@ docker run --volume $PWD:/app slackapp collect_daily.py \
 
 ```bash
 docker run --volume $PWD:/app slackapp collect_role_summary.py \
-  --user hisahiro.tsukamoto --days 180 --token $SLACK_TOKEN
+  --user hihats --days 180 --token $SLACK_TOKEN
 # → outputs/role_summary/<user_id>_180d.json
 ```
 
@@ -141,11 +141,11 @@ docker run --volume $PWD:/app slackapp collect_role_summary.py \
 ```bash
 # 過去30日、全チャンネル
 docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py \
-  --user hisahiro.tsukamoto
+  --user hihats
 
 # 期間（両端の日を含む）・チャンネル・キーワードで絞る
 docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py \
-  --user hisahiro.tsukamoto --after 2026-10-01 --before 2026-10-07 \
+  --user hihats --after 2026-10-01 --before 2026-10-07 \
   --channel C789012 --keyword リリース --output outputs/user_posts.json
 ```
 
