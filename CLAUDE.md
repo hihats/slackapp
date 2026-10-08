@@ -51,6 +51,14 @@ Timestamps must include a period between the 6th and 7th digits from the right:
 - **Pagination**: `search.messages` uses **page-based** pagination (`page` + `count`), unlike most other methods which use cursor-based. See: https://docs.slack.dev/apis/web-api/pagination
 - **Channel ID**: The `in:` modifier requires `in:<#C07NX1JJ215>` format. Bare `in:C07NX1JJ215` does not work.
 - **Keyword case**: Mixed-case keywords combined with `in:` may fail to match. `build_query()` applies `.lower()` to work around this.
+- **Date modifiers are exclusive**: `after:`/`before:` exclude the given date
+  (not documented; verified 2026-10-08: `on:2026-10-06` = 18 hits,
+  `after:2026-10-06 before:2026-10-07` = 0). For an inclusive range, shift
+  `after` -1 day and `before` +1 day (see `user_posts.resolve_date_range()`).
+  `build_query()` has no `before` arg; pass it via `extra`.
+- **No thread fields in matches**: matches carry no `thread_ts`. Detect replies
+  from the permalink query `?thread_ts=`; a reply's `thread_ts` differs from its
+  own `ts` (equal = thread parent).
 - **Query Examples**:
   - `<@U123456> after:2024-01-01`
   - `<@U123456> in:<#C789012>`
