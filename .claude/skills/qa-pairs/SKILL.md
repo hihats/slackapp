@@ -28,10 +28,22 @@ Markdown にする段階で除外または抽象化する（該当したら「(�
 
 ### Step 1: 収集（Docker）
 
+スキルに渡された引数（`--days` または `--after`/`--before`、`--channel`）は、
+**指定されたものだけをそのまま** `collect` に渡す。指定されていないものは付けない
+（期間がなければスクリプトの既定 30 日になる）。
+
 ```bash
 docker run --volume $PWD:/app slackapp qa_pairs.py collect \
-  --user <ID or 表示名> --days <N> --token $SLACK_TOKEN
+  --user <ID or 表示名> [--days <N> | --after <YYYY-MM-DD> --before <YYYY-MM-DD>] \
+  [--channel <チャンネルID>] --token $SLACK_TOKEN
 # → outputs/qa_pairs/<user_id>.json
+```
+
+例（期間とチャンネルを指定）:
+```bash
+docker run --volume $PWD:/app slackapp qa_pairs.py collect \
+  --user hihats --after 2026-10-01 --before 2026-10-07 \
+  --channel C789012 --token $SLACK_TOKEN
 ```
 
 出力 JSON:
@@ -54,17 +66,26 @@ docker run --volume $PWD:/app slackapp qa_pairs.py collect \
 
 ```bash
 docker run --volume $PWD:/app slackapp qa_pairs.py context \
-  --targets outputs/qa_pairs/<user_id>_targets.json --limit 20 \
+  --targets outputs/qa_pairs/<user_id>_targets.json --limit 3 \
   --output outputs/qa_pairs/<user_id>_context.json --token $SLACK_TOKEN
 ```
 
-`targets[].preceding` に、その投稿より前の発言が古い順で最大 N 件入る（本人の投稿そのものは含まない）。
+`targets[].preceding` に、その投稿より前の発言が古い順で最大 3 件入る
+（本人の投稿そのものは含まない）。
+間に他の発言が挟まっているのにスレッドを使わず返信することは考えにくいため、
+これより前は遡らない。
 
 ### Step 4: 質問を特定する
 
-各 target について、`preceding` の中から本人の投稿が答えている発言を選ぶ。
-- 特定できたら `role: "answerer", source: "channel_context"` の組として加える（question = その発言、answers = 本人の投稿）
-- 特定できなければ外す。推測で結びつけない
+各 target について、`preceding` を新しいほうから見て、次の発言を飛ばした
+**最初の1件だけ**を質問の候補にする。
+- 本人の発言（答えを複数の投稿に分けた場合）
+- bot の発言（`user` が `B` で始まるもの、`USLACKBOT`）
+
+- 本人の投稿がその候補に答えていれば、`role: "answerer", source: "channel_context"` の組として加える
+  （question = 候補の発言、answers = 本人の投稿）
+- 候補に答えていなければ外す。それより前の発言とは結びつけない
+- 3 件すべてが飛ばす対象で候補がなければ外す
 
 ### Step 5: Markdown にする
 
