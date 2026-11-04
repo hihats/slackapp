@@ -24,7 +24,7 @@ def parse_arguments():
         description="特定ユーザーへのメンションを含むメッセージを検索し、本文テキストをファイル出力"
     )
     parser.add_argument("--token", required=True, help="Slack API トークン")
-    parser.add_argument("--mentioned-user", required=True, help="メンション対象のユーザーIDまたは表示名（例: U12345ABC, hisahiro.tsukamoto）")
+    parser.add_argument("--mentioned-user", required=True, help="メンション対象のユーザーIDまたは表示名（例: U12345ABC, hihats）")
     parser.add_argument("--channel", default=None, help="チャンネルID（省略時は全チャンネル横断検索）")
     parser.add_argument("--days", type=int, default=30, help="検索する過去日数 (デフォルト: 30)")
     parser.add_argument("--output", required=True, help="出力テキストファイルパス")

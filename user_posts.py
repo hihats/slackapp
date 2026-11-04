@@ -74,11 +74,16 @@ def fetch_user_posts(client, query):
     return posts
 
 
+def permalink_thread_ts(match):
+    """permalink の thread_ts クエリを返す（なければ None）。"""
+    # search.messages の match には thread_ts フィールドがないため permalink から取る
+    params = parse_qs(urlparse(match.get("permalink", "")).query)
+    return params.get("thread_ts", [None])[0]
+
+
 def is_thread_reply(match):
     """permalink の thread_ts が自身の ts と異なればスレッド返信と判定する。"""
-    # search.messages の match には thread_ts フィールドがないため permalink から判定する
-    params = parse_qs(urlparse(match.get("permalink", "")).query)
-    thread_ts = params.get("thread_ts", [None])[0]
+    thread_ts = permalink_thread_ts(match)
     return thread_ts is not None and thread_ts != match.get("ts")
 
 
