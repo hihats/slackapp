@@ -6,7 +6,6 @@ import pytest
 
 from qa_pairs import (
     parse_arguments,
-    classify_post,
     group_threads,
     format_message,
     build_pair,
@@ -43,23 +42,6 @@ class TestParseArguments:
         assert args.limit == 20
 
 
-# --- classify_post ---
-
-
-class TestClassifyPost:
-    def test_reply_is_answerer(self):
-        """スレッド返信は answerer"""
-        assert classify_post(_match("200.000002", REPLY)) == ("answerer", "100.000001")
-
-    def test_parent_is_asker(self):
-        """スレッド親は asker"""
-        assert classify_post(_match("100.000001", PARENT)) == ("asker", "100.000001")
-
-    def test_top_level_is_standalone(self):
-        """スレッドに属さない投稿は standalone"""
-        assert classify_post(_match("300.000003", TOP)) == ("standalone", None)
-
-
 # --- group_threads ---
 
 
@@ -69,10 +51,10 @@ class TestGroupThreads:
         threads, _ = group_threads([_match("200.000002", REPLY), _match("200.000003", REPLY)])
         assert len(threads) == 1
 
-    def test_asker_wins_over_answerer(self):
-        """本人が親なら、自分の返信があっても asker"""
+    def test_parent_and_reply_in_same_thread_become_one_thread(self):
+        """同じスレッドの親の投稿と返信は1スレッドにまとめる"""
         threads, _ = group_threads([_match("200.000002", REPLY), _match("100.000001", PARENT)])
-        assert threads[0]["role"] == "asker"
+        assert len(threads) == 1
 
     def test_same_thread_ts_in_other_channel_is_separate(self):
         """チャンネルが違えば別スレッド"""
@@ -99,6 +81,11 @@ class TestFormatMessage:
             "text": "hi",
         }
 
+    def test_app_message_with_user_and_bot_id_is_shown_as_bot(self):
+        """user と bot_id の両方を持つアプリの投稿は bot_id で出す"""
+        msg = {"ts": "1759885200.000100", "user": "U9", "bot_id": "B1", "text": "通知"}
+        assert format_message(msg)["user"] == "B1"
+
 
 # --- build_pair ---
 
@@ -106,7 +93,7 @@ class TestFormatMessage:
 class TestBuildPair:
     def test_first_message_is_question_and_rest_are_answers(self):
         """先頭を question、残りを answers にし、本人の発言に印を付ける"""
-        thread = {"role": "answerer", "channel_id": "C1", "channel_name": "general",
+        thread = {"channel_id": "C1", "channel_name": "general",
                   "thread_ts": "100.000001", "permalink": REPLY}
         messages = [
             {"ts": "100.000001", "user": "U2", "text": "q?"},
@@ -120,6 +107,38 @@ class TestBuildPair:
         assert pair["question"]["text"] == "q?"
         assert [a["is_target_user"] for a in pair["answers"]] == [True, False]
 
+    def test_thread_started_by_target_user_is_asker(self):
+        """スレッドの親が本人なら、検索で親が見つかったかに関係なく asker"""
+        thread = {"channel_id": "C1", "channel_name": "general",
+                  "thread_ts": "100.000001", "permalink": REPLY}
+        messages = [
+            {"ts": "100.000001", "user": "U1", "text": "q?"},
+            {"ts": "200.000002", "user": "U2", "text": "a"},
+        ]
+
+        assert build_pair(thread, messages, "U1")["role"] == "asker"
+
+    def test_own_thread_found_only_by_reply_is_asker(self):
+        """検索で本人の返信だけが見つかっても、親が本人なら asker"""
+        threads, _ = group_threads([_match("200.000002", REPLY)])
+        messages = [
+            {"ts": "100.000001", "user": "U1", "text": "q?"},
+            {"ts": "150.000001", "user": "U2", "text": "a"},
+            {"ts": "200.000002", "user": "U1", "text": "thx"},
+        ]
+
+        assert build_pair(threads[0], messages, "U1")["role"] == "asker"
+
+    def test_thread_started_by_others_is_answerer(self):
+        """スレッドの親が他者なら answerer"""
+        threads, _ = group_threads([_match("200.000002", REPLY)])
+        messages = [
+            {"ts": "100.000001", "user": "U2", "text": "q?"},
+            {"ts": "200.000002", "user": "U1", "text": "a"},
+        ]
+
+        assert build_pair(threads[0], messages, "U1")["role"] == "answerer"
+
 
 # --- collect_qa_pairs ---
 
@@ -130,7 +149,7 @@ class TestCollectQaPairs:
     def test_skips_threads_that_could_not_be_fetched(self, mock_fetch, _sleep):
         """取得できなかったスレッドは結果に含めない"""
         mock_fetch.side_effect = [[], [{"ts": "100.000001", "user": "U2", "text": "q"}]]
-        threads = [{"role": "answerer", "channel_id": "C1", "channel_name": "g",
+        threads = [{"channel_id": "C1", "channel_name": "g",
                     "thread_ts": t, "permalink": None} for t in ("1.0", "100.000001")]
 
         pairs = collect_qa_pairs(MagicMock(), threads, "U1")

@@ -27,7 +27,6 @@ from user_posts import (
 
 ANSWERER = "answerer"
 ASKER = "asker"
-STANDALONE = "standalone"
 DEFAULT_LIMIT = 20
 OUTPUT_DIR = Path("outputs/qa_pairs")
 # conversations.replies / history は Tier 3。共通関数は呼び出しの間で待たないためこちらで待つ
@@ -66,33 +65,21 @@ def parse_arguments(argv=None):
     return args
 
 
-def classify_post(match):
-    """permalink の thread_ts から (role, thread_ts) を決める。"""
-    thread_ts = permalink_thread_ts(match)
-    if thread_ts is None:
-        return STANDALONE, None
-    return (ASKER if thread_ts == match.get("ts") else ANSWERER), thread_ts
-
-
 def group_threads(matches):
     """本人の発言を (channel, thread_ts) 単位のスレッドと、スレッド外の投稿に分ける。"""
     threads, standalone = {}, []
     for match in matches:
-        role, thread_ts = classify_post(match)
-        if role == STANDALONE:
+        thread_ts = permalink_thread_ts(match)
+        if thread_ts is None:
             standalone.append(match)
             continue
         channel = match.get("channel") or {}
-        thread = threads.setdefault((channel.get("id"), thread_ts), {
-            "role": role,
+        threads.setdefault((channel.get("id"), thread_ts), {
             "channel_id": channel.get("id"),
             "channel_name": channel.get("name"),
             "thread_ts": thread_ts,
             "permalink": match.get("permalink"),
         })
-        if role == ASKER:
-            # 本人が親なら、同じスレッドに自分の返信があっても質問者側として扱う
-            thread["role"] = ASKER
     return list(threads.values()), standalone
 
 
@@ -106,7 +93,8 @@ def format_message(msg):
     return {
         "ts": msg["ts"],
         "datetime": posted_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "user": msg.get("user") or msg.get("bot_id"),
+        # アプリの投稿は user（U…）も持つため、bot と見分けられるよう bot_id を先に見る
+        "user": msg.get("bot_id") or msg.get("user"),
         "text": msg.get("text", ""),
     }
 
@@ -114,8 +102,11 @@ def format_message(msg):
 def build_pair(thread, messages, user_id):
     """スレッドの先頭を質問、残りを回答として 1 組にする。"""
     question, *replies = messages
+    # 検索結果に親が含まれるとは限らない（期間外・キーワード不一致）ため、取得した親の発言者で決める
+    role = ASKER if question.get("user") == user_id else ANSWERER
     answers = [{**format_message(m), "is_target_user": m.get("user") == user_id} for m in replies]
-    return {**thread, "source": "thread", "question": format_message(question), "answers": answers}
+    return {"role": role, **thread, "source": "thread",
+            "question": format_message(question), "answers": answers}
 
 
 def collect_qa_pairs(client, threads, user_id):
