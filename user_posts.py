@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from slack_sdk import WebClient
@@ -103,6 +104,7 @@ def format_post(match):
 
 
 def save_results(data, output_path):
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
