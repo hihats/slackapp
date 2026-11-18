@@ -1,5 +1,6 @@
 """Tests for user_posts module"""
 
+import json
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +14,7 @@ from user_posts import (
     is_thread_reply,
     permalink_thread_ts,
     format_post,
+    save_results,
 )
 
 
@@ -177,3 +179,17 @@ class TestFormatPost:
             "permalink": "https://x.slack.com/archives/C1/p1759885200000100",
             "is_thread_reply": False,
         }
+
+
+# --- save_results ---
+
+
+class TestSaveResults:
+    def test_creates_missing_parent_directory(self, tmp_path):
+        """保存先のディレクトリがなければ作って保存する"""
+        output_path = tmp_path / "outputs" / "user_posts.json"
+        data = {"user_id": "U1", "posts": [{"ts": "1759885200.000100", "text": "こんにちは"}]}
+
+        save_results(data, str(output_path))
+
+        assert json.loads(output_path.read_text(encoding="utf-8")) == data
