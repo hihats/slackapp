@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from slack_sdk.errors import SlackApiError
 
 from qa_pairs import (
     parse_arguments,
@@ -147,20 +148,33 @@ def _thread(thread_ts):
     return {"channel_id": "C1", "channel_name": "g", "thread_ts": thread_ts, "permalink": None}
 
 
+def _slack_error(error):
+    # slack_sdk の WebClient は ok=False の応答を返さず SlackApiError を送出する
+    return SlackApiError("The request to the Slack API failed.", response={"ok": False, "error": error})
+
+
 @patch("slack_conversations.time.sleep")
 @patch("qa_pairs.time.sleep")
 class TestCollectQaPairs:
     def test_skips_threads_that_could_not_be_fetched(self, _sleep, _inner_sleep):
-        """取得できなかったスレッドは結果に含めない"""
+        """取得できなかったスレッドは結果に含めず、残りのスレッドは続けて取る"""
         client = MagicMock()
         client.conversations_replies.side_effect = [
-            {"ok": False, "error": "thread_not_found"},
+            _slack_error("thread_not_found"),
             {"ok": True, "messages": [{"ts": "100.000001", "user": "U2", "text": "q"}]},
         ]
 
         pairs = collect_qa_pairs(client, [_thread("1.0"), _thread("100.000001")], "U1")
 
         assert len(pairs) == 1
+
+    def test_stops_on_errors_not_specific_to_the_thread(self, _sleep, _inner_sleep):
+        """認証などスレッド固有でないエラーでは止める"""
+        client = MagicMock()
+        client.conversations_replies.side_effect = _slack_error("invalid_auth")
+
+        with pytest.raises(SlackApiError):
+            collect_qa_pairs(client, [_thread("100.000001")], "U1")
 
     def test_thread_parent_becomes_question(self, _sleep, _inner_sleep):
         """スレッドの親を質問、返信を回答にする"""

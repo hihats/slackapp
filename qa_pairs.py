@@ -16,6 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 from slack_conversations import fetch_all_thread_replies, fetch_channel_history
 from slack_search import SlackSearchError
@@ -31,6 +32,8 @@ DEFAULT_LIMIT = 20
 OUTPUT_DIR = Path("outputs/qa_pairs")
 # conversations.replies / history は Tier 3。共通関数は呼び出しの間で待たないためこちらで待つ
 TIER3_INTERVAL = 1.5
+# 飛ばすのはそのスレッドだけの問題に限る。認証・スコープ等は全スレッドで失敗するため飛ばさず止める
+SKIPPABLE_THREAD_ERRORS = {"thread_not_found", "channel_not_found"}
 
 
 def _has_date_conflict(args):
@@ -84,7 +87,15 @@ def group_threads(matches):
 
 
 def fetch_thread(client, channel_id, thread_ts):
-    return fetch_all_thread_replies(client, channel_id, thread_ts, skip_parent=False)
+    """スレッド全体を取る。スレッド固有のエラーなら空で返し、それ以外はそのまま投げる。"""
+    try:
+        return fetch_all_thread_replies(client, channel_id, thread_ts, skip_parent=False)
+    except SlackApiError as e:
+        error = e.response.get("error")
+        if error not in SKIPPABLE_THREAD_ERRORS:
+            raise
+        print(f"Slack API エラー: {error}")
+        return []
 
 
 def format_message(msg):
