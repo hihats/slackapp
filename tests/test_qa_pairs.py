@@ -143,34 +143,82 @@ class TestBuildPair:
 # --- collect_qa_pairs ---
 
 
-class TestCollectQaPairs:
-    @patch("qa_pairs.time.sleep")
-    @patch("qa_pairs.fetch_thread")
-    def test_skips_threads_that_could_not_be_fetched(self, mock_fetch, _sleep):
-        """取得できなかったスレッドは結果に含めない"""
-        mock_fetch.side_effect = [[], [{"ts": "100.000001", "user": "U2", "text": "q"}]]
-        threads = [{"channel_id": "C1", "channel_name": "g",
-                    "thread_ts": t, "permalink": None} for t in ("1.0", "100.000001")]
+def _thread(thread_ts):
+    return {"channel_id": "C1", "channel_name": "g", "thread_ts": thread_ts, "permalink": None}
 
-        pairs = collect_qa_pairs(MagicMock(), threads, "U1")
+
+@patch("slack_conversations.time.sleep")
+@patch("qa_pairs.time.sleep")
+class TestCollectQaPairs:
+    def test_skips_threads_that_could_not_be_fetched(self, _sleep, _inner_sleep):
+        """取得できなかったスレッドは結果に含めない"""
+        client = MagicMock()
+        client.conversations_replies.side_effect = [
+            {"ok": False, "error": "thread_not_found"},
+            {"ok": True, "messages": [{"ts": "100.000001", "user": "U2", "text": "q"}]},
+        ]
+
+        pairs = collect_qa_pairs(client, [_thread("1.0"), _thread("100.000001")], "U1")
 
         assert len(pairs) == 1
+
+    def test_thread_parent_becomes_question(self, _sleep, _inner_sleep):
+        """スレッドの親を質問、返信を回答にする"""
+        client = MagicMock()
+        client.conversations_replies.return_value = {"ok": True, "messages": [
+            {"ts": "100.000001", "user": "U2", "text": "q?"},
+            {"ts": "200.000002", "user": "U1", "text": "a"},
+        ]}
+
+        pair, = collect_qa_pairs(client, [_thread("100.000001")], "U1")
+
+        assert pair["question"]["text"] == "q?"
+        assert [a["text"] for a in pair["answers"]] == ["a"]
 
 
 # --- fetch_preceding ---
 
 
-class TestFetchPreceding:
-    @patch("qa_pairs.fetch_channel_history")
-    def test_returns_messages_before_ts_oldest_first(self, mock_history):
-        """指定 ts より前の最新 N 件を取り、古い順で返す"""
-        mock_history.return_value = iter([[
-            {"ts": "20.0", "user": "U2", "text": "newer"},
-            {"ts": "10.0", "user": "U3", "text": "older"},
-        ]])
+def _history(texts_newest_first, next_cursor=None, newest_ts=20):
+    messages = [{"ts": f"{newest_ts - i}.0", "user": "U2", "text": t}
+                for i, t in enumerate(texts_newest_first)]
+    return {"ok": True, "messages": messages, "has_more": bool(next_cursor),
+            "response_metadata": {"next_cursor": next_cursor or ""}}
 
-        result = fetch_preceding(MagicMock(), "C1", "30.0", limit=2)
+
+@patch("slack_conversations.time.sleep")
+class TestFetchPreceding:
+    def test_returns_messages_before_ts_oldest_first(self, _sleep):
+        """指定 ts より前の最新 N 件を取り、古い順で返す"""
+        client = MagicMock()
+        client.conversations_history.return_value = _history(["newer", "older"])
+
+        result = fetch_preceding(client, "C1", "30.0", limit=2)
 
         assert [m["text"] for m in result] == ["older", "newer"]
-        _, kwargs = mock_history.call_args
+        _, kwargs = client.conversations_history.call_args
         assert kwargs["latest"] == "30.0" and kwargs["limit"] == 2
+
+    def test_fetches_next_page_until_limit_is_reached(self, _sleep):
+        """1ページ目が limit に満たず続きがあれば、次のページも取る"""
+        client = MagicMock()
+        client.conversations_history.side_effect = [
+            _history(["bot"], next_cursor="c2"),
+            _history(["question", "older"], newest_ts=19),
+        ]
+
+        result = fetch_preceding(client, "C1", "30.0", limit=3)
+
+        assert len(result) == 3 and result[-1]["text"] == "bot"
+
+    def test_keeps_only_newest_limit_messages_across_pages(self, _sleep):
+        """ページをまたいで limit を超えたら、新しい方から limit 件だけ返す"""
+        client = MagicMock()
+        client.conversations_history.side_effect = [
+            _history(["newest"], next_cursor="c2"),
+            _history(["second", "third", "fourth"], newest_ts=19),
+        ]
+
+        result = fetch_preceding(client, "C1", "30.0", limit=3)
+
+        assert [m["text"] for m in result] == ["third", "second", "newest"]

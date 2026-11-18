@@ -125,11 +125,15 @@ def collect_qa_pairs(client, threads, user_id):
 
 def fetch_preceding(client, channel_id, ts, limit):
     """ts より前の最新 limit 件を古い順で返す。"""
-    # fetch_all_channel_history だと全履歴を辿るため、最初の 1 ページだけ使う。
+    # fetch_all_channel_history だと全履歴を辿るため、limit 件に達したページで止める。
+    # 1 ページ目だけにしないのは、履歴が残っていても limit 未満で返ることがあるため（Slack 公式の limit の説明）。
     # latest は ts 文字列のまま渡す（float にすると末尾の桁が丸まり境界がずれうる）
-    pages = fetch_channel_history(client, channel_id, latest=ts, limit=limit)
-    newest_first = next(pages, [])
-    return [format_message(m) for m in reversed(newest_first)]
+    newest_first = []
+    for page in fetch_channel_history(client, channel_id, latest=ts, limit=limit):
+        newest_first.extend(page)
+        if len(newest_first) >= limit:
+            break
+    return [format_message(m) for m in reversed(newest_first[:limit])]
 
 
 def save_json(data, output_path):
