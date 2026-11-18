@@ -31,7 +31,7 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--token", required=True, help="Slack API トークン（search:read スコープ必須）")
-    parser.add_argument("--user", required=True, help="対象ユーザーIDまたは表示名（例: U12345ABC, hisahiro.tsukamoto）")
+    parser.add_argument("--user", required=True, help="対象ユーザーIDまたは表示名（例: U12345ABC, hihats）")
     parser.add_argument("--days", type=int, default=30, help="検索する過去日数 (デフォルト: 30)")
     parser.add_argument("--channel", default=None, help="チャンネルID（省略時は全チャンネル）")
     parser.add_argument("--output", required=True, help="出力JSONファイルパス")
