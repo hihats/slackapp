@@ -1,5 +1,6 @@
 """Tests for qa_pairs module"""
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,6 +13,7 @@ from qa_pairs import (
     build_pair,
     collect_qa_pairs,
     fetch_preceding,
+    new_run_dir,
 )
 
 PARENT = "https://x.slack.com/archives/C1/p100000001?thread_ts=100.000001&cid=C1"
@@ -39,7 +41,7 @@ class TestParseArguments:
 
     def test_context_limit_defaults_to_20(self):
         """context の --limit は既定20"""
-        args = parse_arguments(["context", "--targets", "t.json"])
+        args = parse_arguments(["context", "--run-dir", "r"])
         assert args.limit == 20
 
 
@@ -236,3 +238,17 @@ class TestFetchPreceding:
         result = fetch_preceding(client, "C1", "30.0", limit=3)
 
         assert [m["text"] for m in result] == ["third", "second", "newest"]
+
+
+# --- new_run_dir ---
+
+
+class TestNewRunDir:
+    def test_creates_dir_under_user_and_jst_timestamp(self, tmp_path):
+        """実行ディレクトリは <base>/<user_id>/<JST の日時> に作る"""
+        now = datetime(2026, 11, 19, 1, 15, 0, tzinfo=timezone.utc)  # JST 10:15:00
+
+        run_dir = new_run_dir(tmp_path, "U1", now)
+
+        assert run_dir == tmp_path / "U1" / "20261119-101500"
+        assert run_dir.is_dir()
