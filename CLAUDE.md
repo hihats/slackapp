@@ -67,6 +67,18 @@ Timestamps must include a period between the 6th and 7th digits from the right:
   - `missing_scope` error → token needs `search:read` scope
   - Zero results → try the traditional method without `--use-search-api`
 
+### conversations.history / replies Caveats
+
+- **`oldest` / `latest` are exclusive**: a message whose `ts` equals either bound
+  is not returned unless `inclusive=true`. For an inclusive day range pass the
+  start of the day as `oldest` and the start of the *next* day as `latest`
+  (see `channel_all_posts.to_epoch_range()`).
+  Ref: https://docs.slack.dev/reference/methods/conversations.history
+- **No wait between threads**: `fetch_all_thread_replies()` sleeps only between
+  pages of one thread. When looping over threads, sleep 1.5s in the caller.
+- **Sort `ts` as `Decimal`, not `float`**: `ts` has 16 significant digits, so
+  `float` can misorder messages 1 microsecond apart.
+
 ### Japanese Language Processing
 
 - **Custom Dictionary**: Uses `dict.csv` for custom word definitions (MeCab format)

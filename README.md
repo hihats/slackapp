@@ -67,6 +67,30 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp channel_daily
   --output outputs/channel_daily_posts_$(date +%Y%m%d).json
 ```
 
+### チャンネル全投稿の取得
+
+指定チャンネルの投稿をスレッド返信も含めてすべて JSON に取り出す（投稿内容の検査用）。
+各件には日時(JST)・本文・attachments・blocks・ファイルのメタデータ・スレッド返信かどうかが入る。
+投稿者は保存しない。ファイルの中身はダウンロードしない。
+
+```bash
+# 全期間
+docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp channel_all_posts.py \
+  --channel $CHANNEL_ID --output outputs/channel_all_posts_$CHANNEL_ID.json
+
+# 期間を絞る（両端の日を含む、JST）
+docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp channel_all_posts.py \
+  --channel $CHANNEL_ID --after 2026-11-01 --before 2026-11-18 \
+  --output outputs/channel_all_posts_$CHANNEL_ID.json
+```
+
+- トークンには `channels:history`（プライベートチャンネルは `groups:history`）が必要
+- スレッドを1件ずつ取るため、スレッド数 × 約1.5秒かかる
+- 取れなかったスレッドは中断せず、出力の `skipped_threads` に ts を残す
+- 期間を絞った場合、親投稿が期間外のスレッドは返信が期間内でも取得されない
+- 削除済みの投稿は取れない。編集された投稿は最新の文面だけになる
+- 出力はチャンネルの全文を含む。共有する相手がそのチャンネルを閲覧できるか確認すること
+
 ### リアクション付き投稿の取得
 
 ```bash
@@ -185,12 +209,12 @@ docker run --volume $PWD:/app slackapp qa_pairs.py render --run-dir <RUN_DIR> --
 | 引数 | 説明 | 対象スクリプト |
 |------|------|----------------|
 | `--token` | Slack API トークン | 多数（channel_daily_posts は環境変数から取得） |
-| `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts, user_posts, qa_pairs |
+| `--channel` | チャンネルID or チャンネル名 | wordclouds, message_reactions, weekly/monthly_message_count, channel_daily_posts, channel_all_posts, user_posts, qa_pairs |
 | `--user` | Slack ユーザーID or 表示名 | get_all_channels, collect_role_summary, user_posts, qa_pairs |
 | `--mentioned-user` | メンション先ユーザーID | unanswered_mentions |
 | `--channels-json` | all_channels.json のパス | inactive_channels |
 | `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count, user_posts, qa_pairs |
-| `--after` / `--before` | 期間の開始日・終了日（YYYY-MM-DD、その日を含む。--days と併用不可） | user_posts, qa_pairs |
+| `--after` / `--before` | 期間の開始日・終了日（YYYY-MM-DD、その日を含む。--days と併用不可） | user_posts, qa_pairs, channel_all_posts（--days なし。省略時は全期間） |
 | `--run-dir` | collect が表示した実行ごとのディレクトリ | qa_pairs context / index / render |
 | `--output-dir` | 実行ごとのディレクトリを作る場所（既定は --help を参照） | qa_pairs collect |
 | `--period` | Markdown のタイトルに出す期間 | qa_pairs render |
@@ -220,6 +244,7 @@ docker run --volume $PWD:/app slackapp qa_pairs.py render --run-dir <RUN_DIR> --
 | `monthly_message_count.py` | 月次メッセージ集計 |
 | `unanswered_mentions.py` | 未回答メンション検出 |
 | `channel_daily_posts.py` | チャンネル日次投稿取得 |
+| `channel_all_posts.py` | チャンネル全投稿の全文取得（スレッド返信を含む） |
 | `posts_with_my_reactions.py` | 自分のリアクション付き投稿取得 |
 | `reactions_report.py` | ユーザー投稿へのリアクションレポート生成 |
 | `message_reactions.py` | メッセージのリアクション取得 |
