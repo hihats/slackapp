@@ -28,10 +28,15 @@ argument-hint: "--channel <ID> --knowledge <qa_pairs.md> [--notes <修正メモ.
 ### Step 1: 未回答のメンションを拾う（Docker）
 
 ```bash
+mkdir -p outputs/draft_replies
 docker run --volume $PWD:/app slackapp unanswered_mentions.py --token $SLACK_TOKEN \
   --mentioned-user $SLACK_USER_ID --channel <ID> --days <N> \
   --output outputs/draft_replies/unanswered_$(date +%Y%m%d-%H%M%S).json
 ```
+
+保存先は、出力の「結果を <path> に保存しました」のパスを使う
+（`./output` があると `output/` の下に保存されるため。そのときは
+`output/outputs/draft_replies/` も先に作る）。
 
 出力の各件: `timestamp`（メンションの ts）、`thread_ts`（スレッド外なら null）、`author.id`、`text`。
 0 件ならそう伝えて終わる。
