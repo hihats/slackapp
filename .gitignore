@@ -15,3 +15,5 @@ outputs/
 .claude/commands/
 # JSON data files (contains sensitive information)
 .claude/settings.local.json
+# auto-draft-reply の修正メモ（社内の判断を含むため手元にだけ残す）
+.claude/skills/auto-draft-reply/notes/

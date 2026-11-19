@@ -40,6 +40,9 @@ docker run --volume $PWD:/app slackapp monthly_message_count.py \
 
 ### 未回答メンション検出
 
+メンションされた本人が、リアクションも返信もしていない投稿を拾う。
+スレッド内では、メンションより後の本人の返信だけを回答とみなす。出力の `thread_ts` はスレッドの親の ts（スレッド外なら null）。
+
 ```bash
 # Search API 使用（推奨・高速）
 docker run --volume $PWD:/app slackapp unanswered_mentions.py \
