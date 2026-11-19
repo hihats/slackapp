@@ -156,17 +156,25 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp user_posts.py
 指定したユーザーの発言から、本人が答えた質問（answerer）と、本人の質問への回答（asker）を集める。
 スレッドの親を質問、返信を回答とみなす。スレッドに属さない投稿は `standalone_posts` に残し、
 「回答かどうか」の判定と Markdown 化は `/qa-pairs` スキルが行う。
+中間ファイルは実行ごとのディレクトリに置く（前回の実行のファイルを読み違えないため）。
+collect が最後に、そのディレクトリ（RUN_DIR）と各ファイルのパスを表示する。
+以降のサブコマンドには `--run-dir` でその値を渡す。
 
 ```bash
 # スレッドの Q&A とスレッド外の投稿を集める
 docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp qa_pairs.py collect \
   --user hihats --days 30
-# → outputs/qa_pairs/<user_id>.json
+# → RUN_DIR と各ファイルのパスを表示
 
-# 指定した投稿の直前 N 件を取る（targets: [{"channel_id", "ts"}]）
+# 判定用の索引を作る（Slack は呼ばない）
+docker run --volume $PWD:/app slackapp qa_pairs.py index --run-dir <RUN_DIR>
+
+# targets（[{"channel_id", "ts"}]）に書いた投稿の直前 N 件を取る
 docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp qa_pairs.py context \
-  --targets outputs/qa_pairs/<user_id>_targets.json --limit 20
-# → outputs/qa_pairs/context.json
+  --run-dir <RUN_DIR> --limit 20
+
+# judgement（その他に回すスレッドなど）を書いたあと、Markdown を作る（Slack は呼ばない）
+docker run --volume $PWD:/app slackapp qa_pairs.py render --run-dir <RUN_DIR> --period "2026-10-01〜2026-10-07"
 ```
 
 トークンには `search:read` に加えて `channels:history` / `groups:history` / `im:history` / `mpim:history` が必要。
@@ -183,13 +191,15 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp qa_pairs.py c
 | `--channels-json` | all_channels.json のパス | inactive_channels |
 | `--keyword` | 検索キーワード | wordclouds, weekly/monthly_message_count, user_posts, qa_pairs |
 | `--after` / `--before` | 期間の開始日・終了日（YYYY-MM-DD、その日を含む。--days と併用不可） | user_posts, qa_pairs |
-| `--targets` | 直前を取る投稿の一覧 JSON（[{"channel_id", "ts"}]） | qa_pairs context |
+| `--run-dir` | collect が表示した実行ごとのディレクトリ | qa_pairs context / index / render |
+| `--output-dir` | 実行ごとのディレクトリを作る場所（既定は --help を参照） | qa_pairs collect |
+| `--period` | Markdown のタイトルに出す期間 | qa_pairs render |
 | `--date` | 取得日付（YYYY-MM-DD） | channel_daily_posts, collect_daily |
 | `--source` | 収集対象（slack のみ。互換性のため残置） | collect_daily |
 | `--output-dir` | 中間JSONの出力先（デフォルト: outputs/daily） | collect_daily |
 | `--days` | 遡る日数（デフォルト: 30。collect_role_summary は180） | 多数 |
 | `--months` | 遡る月数（デフォルト: 3） | monthly_message_count |
-| `--output` | 出力ファイルパス | 全スクリプト |
+| `--output` | 出力ファイルパス | 全スクリプト（qa_pairs を除く） |
 | `--format` | 出力形式 json/csv（デフォルト: json） | channel_daily_posts |
 | `--use-search-api` | Search API で高速検索 | unanswered_mentions |
 | `--limit` | 処理チャンネル数上限 | テスト用 |

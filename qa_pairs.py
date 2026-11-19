@@ -5,6 +5,8 @@ collect: 本人の発言を search.messages で取り、スレッドの親を質
          conversations.replies でスレッド全体を取る。スレッド外の投稿は standalone_posts に残す。
 context: 「回答」と判定されたスレッド外の投稿（判定は呼び出し側のスキル）について、
          直前 N 件のメッセージを取る。
+index:   collect の出力から、判定用の索引を作る（Slack は呼ばない）。
+render:  collect の出力と判定ファイルから Markdown を作る（Slack は呼ばない）。
 """
 
 import argparse
@@ -25,11 +27,15 @@ from slack_user import resolve_user_id
 from user_posts import (
     JST, build_user_query, fetch_user_posts, format_post, permalink_thread_ts, resolve_date_range,
 )
+from qa_pairs_markdown import build_index, render_markdown
 
 ANSWERER = "answerer"
 ASKER = "asker"
 DEFAULT_LIMIT = 20
 OUTPUT_DIR = Path("outputs/qa_pairs")
+# 実行ごとのディレクトリ内のファイル名。スキルや README はここに依存せず collect の表示を使う
+RUN_FILES = {"collect": "collect.json", "index": "index.txt", "targets": "targets.json",
+             "context": "context.json", "judgement": "judgement.json", "markdown": "qa_pairs.md"}
 # conversations.replies / history は Tier 3。共通関数は呼び出しの間で待たないためこちらで待つ
 TIER3_INTERVAL = 1.5
 # 飛ばすのはそのスレッドだけの問題に限る。認証・スコープ等は全スレッドで失敗するため飛ばさず止める
@@ -41,25 +47,32 @@ def _has_date_conflict(args):
 
 
 def parse_arguments(argv=None):
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--token", type=str, default=os.environ.get("SLACK_TOKEN"),
-                        help="Slackユーザートークン（既定は環境変数 SLACK_TOKEN）")
-    common.add_argument("--output", help="出力JSONファイル")
+    slack = argparse.ArgumentParser(add_help=False)
+    slack.add_argument("--token", type=str, default=os.environ.get("SLACK_TOKEN"),
+                       help="Slackユーザートークン（既定は環境変数 SLACK_TOKEN）")
+    run = argparse.ArgumentParser(add_help=False)
+    run.add_argument("--run-dir", required=True, help="collect が表示した RUN_DIR")
 
     parser = argparse.ArgumentParser(description="指定ユーザーの発言から質問と回答のセットを集める")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    collect = sub.add_parser("collect", parents=[common], help="スレッドの Q&A とスレッド外の投稿を集める")
+    collect = sub.add_parser("collect", parents=[slack], help="スレッドの Q&A とスレッド外の投稿を集める")
     collect.add_argument("--user", required=True, help="対象ユーザーIDまたは表示名")
     collect.add_argument("--channel", help="チャンネルID（省略時は全チャンネル横断）")
     collect.add_argument("--keyword", help="本文キーワード（フレーズ一致）")
     collect.add_argument("--days", type=int, help="遡る日数（既定: 30／--after・--before と併用不可）")
     collect.add_argument("--after", type=date.fromisoformat, help="この日以降（当日を含む, YYYY-MM-DD）")
     collect.add_argument("--before", type=date.fromisoformat, help="この日以前（当日を含む, YYYY-MM-DD）")
+    collect.add_argument("--output-dir", type=Path, default=OUTPUT_DIR,
+                         help=f"実行ごとのディレクトリを作る場所（既定: {OUTPUT_DIR}）")
 
-    context = sub.add_parser("context", parents=[common], help="指定した投稿の直前 N 件を取る")
-    context.add_argument("--targets", required=True, help='[{"channel_id", "ts"}] の JSON ファイル')
+    context = sub.add_parser("context", parents=[slack, run], help="指定した投稿の直前 N 件を取る")
     context.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"遡る件数（既定: {DEFAULT_LIMIT}）")
+
+    sub.add_parser("index", parents=[run], help="判定用の索引を作る")
+
+    render = sub.add_parser("render", parents=[run], help="Markdown を作る")
+    render.add_argument("--period", required=True, help="タイトルに出す期間")
 
     args = parser.parse_args(argv)
     # add_mutually_exclusive_group は「--days 対 (--after または --before)」を表せないため手で検査する
@@ -147,11 +160,40 @@ def fetch_preceding(client, channel_id, ts, limit):
     return [format_message(m) for m in reversed(newest_first[:limit])]
 
 
+def new_run_dir(base, user_id, now):
+    """<base>/<user_id>/<JST の日時> を作って返す。"""
+    run_dir = Path(base) / user_id / now.astimezone(JST).strftime("%Y%m%d-%H%M%S")
+    # 同じ秒に実行されても前の結果を上書きしないよう、既にあれば止める
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
+
+
+def run_file(run_dir, role):
+    return Path(run_dir) / RUN_FILES[role]
+
+
+def print_run_files(run_dir):
+    print(f"RUN_DIR: {run_dir}")
+    for role in RUN_FILES:
+        print(f"  {role}: {run_file(run_dir, role)}")
+
+
+def load_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def save_json(data, output_path):
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"保存完了: {path}")
+
+
+def save_text(text, output_path):
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
     print(f"保存完了: {path}")
 
 
@@ -171,30 +213,50 @@ def run_collect(client, args):
         "qa_pairs": pairs,
         "standalone_posts": [format_post(m) for m in standalone],
     }
-    save_json(data, args.output or OUTPUT_DIR / f"{user_id}.json")
+    # 取得に失敗したとき空のディレクトリを残さないよう、保存の直前に作る
+    run_dir = new_run_dir(args.output_dir, user_id, datetime.now(JST))
+    save_json(data, run_file(run_dir, "collect"))
     print(f"  Q&A: {len(pairs)} 組 / スレッド外の投稿: {len(standalone)} 件")
+    print_run_files(run_dir)
 
 
 def run_context(client, args):
-    targets = json.loads(Path(args.targets).read_text(encoding="utf-8"))
+    targets = load_json(run_file(args.run_dir, "targets"))
     results = []
     for i, target in enumerate(targets):
         if i:
             time.sleep(TIER3_INTERVAL)
         preceding = fetch_preceding(client, target["channel_id"], target["ts"], args.limit)
         results.append({**target, "preceding": preceding})
-    save_json({"targets": results}, args.output or OUTPUT_DIR / "context.json")
+    save_json({"targets": results}, run_file(args.run_dir, "context"))
+
+
+def run_index(args):
+    data = load_json(run_file(args.run_dir, "collect"))
+    save_text(build_index(data), run_file(args.run_dir, "index"))
+
+
+def run_render(args):
+    data = load_json(run_file(args.run_dir, "collect"))
+    judgement = load_json(run_file(args.run_dir, "judgement"))
+    save_text(render_markdown(data, judgement, args.period), run_file(args.run_dir, "markdown"))
+
+
+SLACK_RUNNERS = {"collect": run_collect, "context": run_context}
+OFFLINE_RUNNERS = {"index": run_index, "render": run_render}
 
 
 def main():
     args = parse_arguments()
+    if args.command in OFFLINE_RUNNERS:
+        OFFLINE_RUNNERS[args.command](args)
+        return
     if not args.token:
         raise SystemExit("Slackトークンが未指定です（--token または環境変数 SLACK_TOKEN）")
 
     client = WebClient(token=args.token)
-    runner = run_collect if args.command == "collect" else run_context
     try:
-        runner(client, args)
+        SLACK_RUNNERS[args.command](client, args)
     except SlackSearchError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
