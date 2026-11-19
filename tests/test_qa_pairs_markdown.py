@@ -22,6 +22,13 @@ def _pair(role="answerer", question_text="q?", answers=None):
     }
 
 
+def _post(text="終わりました"):
+    return {"ts": "300.000003", "datetime": "2026-10-06 20:35:32",
+            "channel_id": "C1", "channel_name": "general", "text": text,
+            "permalink": "https://x.slack.com/archives/C1/p300000003",
+            "is_thread_reply": False}
+
+
 def _data(pairs=(), posts=()):
     return {"user_id": "U1", "query": "from:<@U1>",
             "qa_pairs": list(pairs), "standalone_posts": list(posts)}
@@ -64,19 +71,6 @@ class TestBuildIndex:
 
         assert "C1:300.000003" in index
         assert "終わりました" in index
-
-    def test_standalone_post_shows_full_datetime_and_permalink(self):
-        """スレッド外の投稿は、組を作るのに要る秒までの日時とリンクも載せる"""
-        post = {"ts": "300.000003", "datetime": "2026-10-06 20:35:32",
-                "channel_id": "C1", "channel_name": "general", "text": "終わりました",
-                "permalink": "https://x.slack.com/archives/C1/p300000003",
-                "is_thread_reply": False}
-
-        index = build_index(_data(posts=[post]))
-
-        assert "2026-10-06 20:35:32" in index
-        assert "https://x.slack.com/archives/C1/p300000003" in index
-
 
     def test_slack_escaped_symbols_are_restored(self):
         """索引の本文も、Slack がエスケープした記号を元に戻して載せる"""
@@ -135,14 +129,15 @@ class TestRenderMarkdown:
         assert "- <@U3> (2026-10-06 14:05:00): 他の人の返信" in md
 
     def test_channel_context_pair_is_in_answerer_section(self):
-        """スレッド外で答えた組は「本人が答えた質問・依頼」に入る"""
-        pair = {**_pair(role="answerer", question_text="これ使えますか？"),
-                "source": "channel_context"}
+        """スレッド外で答えた組は、指した投稿を回答として「本人が答えた質問・依頼」に入る"""
+        question = {"datetime": "2026-10-06 20:30:00", "user": "U2", "text": "これ使えますか？"}
+        judgement = {"channel_context_pairs": [{"post": "C1:300.000003", "question": question}]}
 
-        md = render_markdown(_data(), {"channel_context_pairs": [pair]}, "2026-10-06")
+        md = render_markdown(_data(posts=[_post("使えます")]), judgement, "2026-10-06")
 
         answerer_part = md.split("## 本人が答えた質問・依頼（1 組）")[1].split("## 本人の質問・依頼と回答")[0]
         assert "これ使えますか？" in answerer_part
+        assert "- **<@U1> (2026-10-06 20:35:32): 使えます**" in answerer_part
 
     def test_unknown_other_thread_key_is_an_error(self):
         """other_threads に collect の結果にないキーがあればエラーにする"""
@@ -172,3 +167,20 @@ class TestRenderMarkdown:
         md = render_markdown(_data([_pair(answers=answers)]), {}, "2026-10-06")
 
         assert "- <@U3> (2026-10-06 14:11:23): 大丈夫です！ Claude Code にする\n" in md
+
+    def test_channel_context_answer_is_decoded_once(self):
+        """スレッド外の回答も、Slack のエスケープを戻すのは 1 回だけ"""
+        question = {"datetime": "2026-10-06 20:30:00", "user": "U2", "text": "どう入力する？"}
+        judgement = {"channel_context_pairs": [{"post": "C1:300.000003", "question": question}]}
+
+        md = render_markdown(_data(posts=[_post("文字列 &amp;lt; を入力")]), judgement, "2026-10-06")
+
+        assert "文字列 &lt; を入力" in md
+
+    def test_unknown_channel_context_post_is_an_error(self):
+        """channel_context の組が collect の結果にない投稿を指していればエラーにする"""
+        question = {"datetime": "2026-10-06 20:30:00", "user": "U2", "text": "q"}
+        judgement = {"channel_context_pairs": [{"post": "C1:999.000001", "question": question}]}
+
+        with pytest.raises(ValueError, match="C1:999.000001"):
+            render_markdown(_data(posts=[_post()]), judgement, "2026-10-06")

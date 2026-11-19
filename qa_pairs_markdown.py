@@ -15,6 +15,11 @@ def thread_key(pair):
     return f"{pair['channel_id']}:{pair['thread_ts']}"
 
 
+def post_key(post):
+    """索引と判定ファイルで共通に使う、スレッド外の投稿のキー。"""
+    return f"{post['channel_id']}:{post['ts']}"
+
+
 def _first_own_reply(pair):
     own = next((a["text"] for a in pair["answers"] if a["is_target_user"]), "")
     # 先に切ると &amp; の途中で切れて戻せないため、戻してから切る
@@ -42,8 +47,7 @@ def _index_thread(pair):
 
 
 def _index_post(post):
-    header = (f"## S {post['channel_id']}:{post['ts']} | #{post['channel_name']}"
-              f" | {post['datetime']} | {post['permalink']}")
+    header = f"## S {post_key(post)} | #{post['channel_name']} | {post['datetime'][:16]}"
     return f"{header}\n{_unescape(post['text'])}"
 
 
@@ -80,16 +84,37 @@ def _render_others(pairs):
     return f"## その他のスレッド（{len(pairs)} 件）\n\n{body}"
 
 
+def _context_pair(question, post, user_id):
+    answer = {"datetime": post["datetime"], "user": user_id,
+              "text": post["text"], "is_target_user": True}
+    return {"role": "answerer", "source": "channel_context",
+            "channel_name": post["channel_name"], "permalink": post["permalink"],
+            "question": question, "answers": [answer]}
+
+
+def _reject_unknown(keys, items, key, label):
+    """判定ファイルのキーが collect の結果にあるか確かめる。"""
+    # 書き間違いを無視すると、その他に回したはずのスレッドが黙って載るため止める
+    unknown = set(keys) - {key(item) for item in items}
+    if unknown:
+        raise ValueError(f"collect の結果にない{label}です: {sorted(unknown)}")
+
+
+def _context_pairs(data, entries):
+    """判定ファイルが指したスレッド外の投稿を、collect の元データから組にする。"""
+    # 索引の本文はデコード済みのため、写させると render で二重にデコードされる。元データから取る
+    posts = {post_key(p): p for p in data["standalone_posts"]}
+    _reject_unknown([e["post"] for e in entries], data["standalone_posts"], post_key, "投稿")
+    return [_context_pair(e["question"], posts[e["post"]], data["user_id"]) for e in entries]
+
+
 def _split(data, judgement):
     """載せる組と、「その他」に回すスレッドに分ける。"""
     pairs = data["qa_pairs"]
     other_keys = set(judgement.get("other_threads", []))
-    # 書き間違いを無視すると、その他に回したはずのスレッドが黙って載るため止める
-    unknown = other_keys - {thread_key(p) for p in pairs}
-    if unknown:
-        raise ValueError(f"collect の結果にないスレッドです: {sorted(unknown)}")
+    _reject_unknown(other_keys, pairs, thread_key, "スレッド")
     shown = ([p for p in pairs if thread_key(p) not in other_keys]
-             + judgement.get("channel_context_pairs", []))
+             + _context_pairs(data, judgement.get("channel_context_pairs", [])))
     others = [p for p in pairs if thread_key(p) in other_keys]
     return shown, others
 

@@ -57,7 +57,7 @@ docker run --volume $PWD:/app slackapp qa_pairs.py collect \
   - 次の行から親の本文（全文）。answerer の組には `> 本人の最初の返信: <冒頭100字>` が続く
   - スレッドは期間外の返信も含めて全体を取っている
   - スレッドの構造だけで集めているので、質問でないスレッド（雑談・告知など）も入る
-- `## S <channel_id>:<ts> | #<channel> | <日時> | <permalink>`
+- `## S <channel_id>:<ts> | #<channel> | <日時>`
   - 次の行からスレッド外の本人の投稿
 
 ### Step 2: スレッド外の投稿が「回答」かを判定する
@@ -91,11 +91,12 @@ docker run --volume $PWD:/app slackapp qa_pairs.py context \
 
 - 本人の投稿がその候補に答えていれば、Step 5 で書く `<judgement>` の `channel_context_pairs` に次の形で入れる
   ```
-  {"role": "answerer", "source": "channel_context", "channel_name": <S のチャンネル名（# なし）>,
-   "permalink": <S の permalink>,
-   "question": {"datetime", "user", "text"}（候補の発言。<context> から）,
-   "answers": [{"datetime": <S の日時>, "user": <user_id>, "text": <S の本文>, "is_target_user": true}]}
+  {"post": "<S のキー（channel_id:ts）>",
+   "question": {"datetime", "user", "text"}}
   ```
+  - question は、`<context>` の候補の発言をそのまま写す（本文はエスケープされたままでよい。render がデコードする）
+  - 回答（本人の投稿）の本文・日時・リンクは render が collect の結果から取るので、写さない
+    （索引の本文はデコード済みで、写すと二重にデコードされるため）
 - 候補に答えていなければ外す。それより前の発言とは結びつけない
 - 3 件すべてが飛ばす対象で候補がなければ外す
 
