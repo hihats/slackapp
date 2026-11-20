@@ -192,63 +192,53 @@ def get_thread_mentions(client, channel_id, thread_ts, mention_pattern, oldest_t
 
     return thread_mentions
 
+def _reaction_by(message, user_id):
+    """本人が付けたリアクション名を返す。"""
+    return next((r["name"] for r in message.get("reactions", [])
+                 if user_id in r.get("users", [])), None)
+
+
+def _thread_ts_of(message):
+    """親なら自身の ts、スレッド内の返信なら親の ts、スレッド外なら None。"""
+    if message.get("reply_count", 0) > 0:
+        return message["ts"]
+    return message.get("thread_ts")
+
+
+def _reply_after(client, channel_id, thread_ts, after_ts, user_id):
+    """スレッドで after_ts より後の本人の返信を返す。"""
+    if thread_ts is None:
+        return None
+    # スレッドのどこかの返信で判定すると、先に答えた後で来た質問まで回答済みになるため、メンションより後に限る
+    replies = fetch_all_thread_replies(client, channel_id, thread_ts, skip_parent=False)
+    return next((r for r in replies
+                 if r.get("user") == user_id and float(r["ts"]) > float(after_ts)), None)
+
+
+def _followup_by(client, channel_id, message_ts, user_id):
+    """メッセージから 24 時間以内の、スレッド外の本人の投稿を返す。"""
+    message_time = float(message_ts)
+    pages = fetch_channel_history(client, channel_id, oldest=message_time,
+                                  latest=message_time + 3600 * 24, limit=50)
+    return next((m for page in pages for m in page
+                 if m.get("user") == user_id and float(m["ts"]) > message_time), None)
+
+
 def check_user_reactions_and_replies(client, channel_id, message, mentioned_user_id):
     """メッセージに対してメンションされたユーザーがリアクションや返信をしているか確認"""
-    message_ts = message["ts"]
-    
-    # 1. リアクションをチェック
-    reactions = message.get("reactions", [])
-    for reaction in reactions:
-        if mentioned_user_id in reaction.get("users", []):
-            return True, "reaction", reaction["name"]
-    
-    # 2. スレッドの返信をチェック
+    reaction = _reaction_by(message, mentioned_user_id)
+    if reaction:
+        return True, "reaction", reaction
     try:
-        # スレッドの親メッセージの場合、またはスレッド内の返信の場合
-        thread_ts_to_check = None
-        if message.get("reply_count", 0) > 0:
-            # これはスレッドの親メッセージ
-            thread_ts_to_check = message_ts
-        elif "thread_ts" in message:
-            # これはスレッド内の返信
-            thread_ts_to_check = message["thread_ts"]
-        
-        if thread_ts_to_check:
-            print(f"[DEBUG] スレッド返信チェック開始: thread_ts={thread_ts_to_check}, channel={channel_id}")
-            print(f"[DEBUG] message type: {'parent' if message.get('reply_count', 0) > 0 else 'reply'}")
-            
-            # スレッドの返信を取得
-            replies = fetch_all_thread_replies(client, channel_id, thread_ts_to_check, skip_parent=False)
-            print(f"[DEBUG] スレッド内メッセージ数: {len(replies)}")
-
-            # 最初のメッセージは元のメッセージなのでスキップ
-            for i, reply in enumerate(replies[1:], 1):
-                reply_user = reply.get("user", "")
-                reply_text = reply.get("text", "")[:50]
-                print(f"[DEBUG] 返信{i}: user={reply_user}")
-                print(f"[DEBUG] 返信{i}テキスト: {reply_text}...")
-                print(f"[DEBUG] 対象ユーザー({mentioned_user_id})と一致? {reply_user == mentioned_user_id}")
-
-                if reply.get("user") == mentioned_user_id:
-                    print(f"[DEBUG] ✅ スレッド内返信を発見!")
-                    return True, "reply", reply.get("text", "")[:100]
-
-            print(f"[DEBUG] ❌ スレッド内に対象ユーザーの返信なし")
-        
-        # 3. 直後の返信もチェック（スレッドでない場合）
-        # 元のメッセージの直後24時間以内にメンションされたユーザーからの投稿があるかチェック
-        message_time = float(message_ts)
-        one_day_later = message_time + 3600 * 24  # 24時間後
-        
-        for recent_messages in fetch_channel_history(client, channel_id, oldest=message_time, latest=one_day_later, limit=50):
-            for recent_msg in recent_messages:
-                if (recent_msg.get("user") == mentioned_user_id and
-                    float(recent_msg["ts"]) > message_time):
-                    return True, "followup", recent_msg.get("text", "")[:100]
-    
+        reply = _reply_after(client, channel_id, _thread_ts_of(message),
+                             message["ts"], mentioned_user_id)
+        if reply:
+            return True, "reply", reply.get("text", "")[:100]
+        followup = _followup_by(client, channel_id, message["ts"], mentioned_user_id)
+        if followup:
+            return True, "followup", followup.get("text", "")[:100]
     except SlackApiError as e:
         print(f"返信チェックエラー: {e}")
-    
     return False, None, None
 
 def get_user_info(client, user_id):
@@ -265,24 +255,25 @@ def get_user_info(client, user_id):
     
     return None
 
+def _user_summary(user_id, info):
+    """ユーザー ID と表示名・本名をまとめる。情報が取れなかったときは名前を空にする。"""
+    info = info or {}
+    return {"id": user_id, "name": info.get("display_name", ""),
+            "real_name": info.get("real_name", "")}
+
+
 def format_message_data(message, channel_id, channel_name, mentioned_user_info, author_info):
     """メッセージデータをフォーマット"""
     return {
         "channel_id": channel_id,
         "channel_name": channel_name or channel_id,
         "timestamp": message["ts"],
+        # スレッドを取り直して返信するには親の ts が要る。permalink は app_redirect 形式でこれを含まない
+        "thread_ts": message.get("thread_ts"),
         "datetime": datetime.fromtimestamp(float(message["ts"])).strftime("%Y-%m-%d %H:%M:%S"),
         "text": message.get("text", ""),
-        "author": {
-            "id": message.get("user", ""),
-            "name": author_info.get("display_name", "") if author_info else "",
-            "real_name": author_info.get("real_name", "") if author_info else ""
-        },
-        "mentioned_user": {
-            "id": mentioned_user_info.get("id", "") if mentioned_user_info else "",
-            "name": mentioned_user_info.get("display_name", "") if mentioned_user_info else "",
-            "real_name": mentioned_user_info.get("real_name", "") if mentioned_user_info else ""
-        },
+        "author": _user_summary(message.get("user", ""), author_info),
+        "mentioned_user": _user_summary((mentioned_user_info or {}).get("id", ""), mentioned_user_info),
         "permalink": f"https://slack.com/app_redirect?channel={channel_id}&message_ts={message['ts']}"
     }
 
