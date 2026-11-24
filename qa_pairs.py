@@ -7,6 +7,7 @@ context: 「回答」と判定されたスレッド外の投稿（判定は呼�
          直前 N 件のメッセージを取る。
 index:   collect の出力から、判定用の索引を作る（Slack は呼ばない）。
 render:  collect の出力と判定ファイルから Markdown を作る（Slack は呼ばない）。
+merge:   Markdown をユーザー×チャンネルの蓄積ファイルに積み上げる（Slack は呼ばない）。
 """
 
 import argparse
@@ -27,6 +28,7 @@ from slack_user import resolve_user_id
 from user_posts import (
     JST, build_user_query, fetch_user_posts, format_post, permalink_thread_ts, resolve_date_range,
 )
+from qa_pairs_knowledge import merge_knowledge
 from qa_pairs_markdown import build_index, render_markdown
 
 ANSWERER = "answerer"
@@ -73,6 +75,11 @@ def parse_arguments(argv=None):
 
     render = sub.add_parser("render", parents=[run], help="Markdown を作る")
     render.add_argument("--period", required=True, help="タイトルに出す期間")
+
+    merge = sub.add_parser("merge", parents=[run], help="Markdown を蓄積ファイルに積み上げる")
+    merge.add_argument("--knowledge", type=Path, required=True,
+                       help="蓄積ファイル（なければ作る）")
+    merge.add_argument("--period", required=True, help="今回取り込む期間（蓄積ファイルに記録する）")
 
     args = parser.parse_args(argv)
     # add_mutually_exclusive_group は「--days 対 (--after または --before)」を表せないため手で検査する
@@ -242,8 +249,18 @@ def run_render(args):
     save_text(render_markdown(data, judgement, args.period), run_file(args.run_dir, "markdown"))
 
 
+def run_merge(args):
+    knowledge = args.knowledge.read_text(encoding="utf-8") if args.knowledge.exists() else ""
+    run_md = run_file(args.run_dir, "markdown").read_text(encoding="utf-8")
+    merged, changes = merge_knowledge(knowledge, run_md, args.period)
+    save_text(merged, args.knowledge)
+    print(f"追加・変更した組: {len(changes)} 組")
+    for heading in changes:
+        print(f"  {heading}")
+
+
 SLACK_RUNNERS = {"collect": run_collect, "context": run_context}
-OFFLINE_RUNNERS = {"index": run_index, "render": run_render}
+OFFLINE_RUNNERS = {"index": run_index, "render": run_render, "merge": run_merge}
 
 
 def main():

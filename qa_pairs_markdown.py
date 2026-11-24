@@ -5,9 +5,16 @@ Slack には触らない。Claude が中間 JSON をそのまま読むと、
 JSON の構造の分だけ文脈が埋まるため、ここで整形する。
 """
 
+import re
+
 # 依頼かどうかは「対応しました」など返信の書き出しで分かる。全文は索引が重くなるため載せない
 OWN_REPLY_HEAD = 100
 SECTIONS = [("answerer", "本人が答えた質問・依頼"), ("asker", "本人の質問・依頼と回答")]
+OTHERS = "その他のスレッド"
+# 質問の本文は複数行で "# 要旨" のような行も含むため、見出しは形ごと照合する
+SECTION_HEADING = re.compile(
+    rf"^## ({'|'.join([title for _, title in SECTIONS] + [OTHERS])})（(\d+) (?:組|件)）$")
+PAIR_HEADING = re.compile(r"^### .+ / \d{4}-\d{2}-\d{2} [\d:]+ （\[リンク\]\(\S+\)）$")
 
 
 def thread_key(pair):
@@ -31,6 +38,15 @@ def _unescape(text):
     # html.unescape は本文にそのまま書かれた &copy; などまで変えるため使わない。
     # &amp; を最後に戻すのは、&amp;lt; を < まで戻さないため
     return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _escape_headings(text):
+    """節・組の見出しと同じ形の行だけ、先頭に \\ を付ける。"""
+    # 行頭の # をすべて変えると、本文のコード例（#!/bin/sh など）まで変わる
+    # 保存したファイルを読み直すと \r\n と \r は \n になるため、先にそろえてから見出しと照合する
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(f"\\{line}" if SECTION_HEADING.match(line) or PAIR_HEADING.match(line) else line
+                     for line in text.split("\n"))
 
 
 def _index_thread(pair):
@@ -70,7 +86,7 @@ def _render_pair(pair):
     question = pair["question"]
     answers = "\n".join(_render_answer(a) for a in pair["answers"])
     return (f"### {pair['channel_name']} / {question['datetime']} （[リンク]({pair['permalink']})）\n"
-            f"**Q** <@{question['user']}>: {_unescape(question['text'])}\n\n**A**\n{answers}")
+            f"**Q** <@{question['user']}>: {_escape_headings(_unescape(question['text']))}\n\n**A**\n{answers}")
 
 
 def _render_section(title, pairs):
@@ -81,7 +97,7 @@ def _render_section(title, pairs):
 def _render_others(pairs):
     lines = [f"- {p['channel_name']} [リンク]({p['permalink']})" for p in pairs]
     body = "\n".join(lines) or "なし"
-    return f"## その他のスレッド（{len(pairs)} 件）\n\n{body}"
+    return f"## {OTHERS}（{len(pairs)} 件）\n\n{body}"
 
 
 def _context_pair(question, post, user_id):

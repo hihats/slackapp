@@ -203,7 +203,16 @@ docker run --volume $PWD:/app -e SLACK_TOKEN=$SLACK_TOKEN slackapp qa_pairs.py c
 
 # judgement（その他に回すスレッドなど）を書いたあと、Markdown を作る（Slack は呼ばない）
 docker run --volume $PWD:/app slackapp qa_pairs.py render --run-dir <RUN_DIR> --period "2026-10-01〜2026-10-07"
+
+# Markdown をユーザー×チャンネルの蓄積ファイルに積み上げる（Slack は呼ばない）
+docker run --volume $PWD:/app slackapp qa_pairs.py merge --run-dir <RUN_DIR> \
+  --knowledge outputs/qa_pairs/<user_id>/knowledge_<channel_id>.md --period "2026-10-01〜2026-10-07"
 ```
+
+merge は組（スレッド、またはスレッド外の投稿）単位で突き合わせ、新しい組は追記、同じ組は新しい内容に差し替える。
+期間が前回と重なっても組は重ならない。「その他のスレッド」は蓄積しない。
+古い組の見出しの次の行に `> 更新:` で始まる注記を入れると、差し替えても引き継がれる
+（判断が覆ったときの注記。`/qa-pairs` スキルが候補を出す）。
 
 トークンには `search:read` に加えて `channels:history` / `groups:history` / `im:history` / `mpim:history` が必要。
 スレッドを1件ずつ取るため、スレッド数 × 約1.5秒かかる。

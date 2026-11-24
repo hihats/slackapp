@@ -1,5 +1,6 @@
 """Tests for qa_pairs module"""
 
+import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +15,7 @@ from qa_pairs import (
     collect_qa_pairs,
     fetch_preceding,
     new_run_dir,
+    run_collect,
 )
 
 PARENT = "https://x.slack.com/archives/C1/p100000001?thread_ts=100.000001&cid=C1"
@@ -68,6 +70,33 @@ class TestGroupThreads:
         """スレッド外の投稿は別リストで返す"""
         threads, standalone = group_threads([_match("300.000003", TOP)])
         assert threads == [] and len(standalone) == 1
+
+
+# --- run_collect ---
+
+
+@patch("slack_conversations.time.sleep")
+@patch("qa_pairs.time.sleep")
+class TestRunCollect:
+    def test_fetched_thread_parent_stays_in_standalone_posts(self, _sleep, _inner_sleep, tmp_path):
+        """取得したスレッドは Q&A の組として保存され、親投稿もスレッド外の投稿として残る
+        （Q&A に採るかは後の判定で決まるため）"""
+        parent = _match("100.000001", "https://x.slack.com/archives/C1/p100000001")
+        client = MagicMock()
+        client.conversations_replies.return_value = {"ok": True, "messages": [
+            {"ts": "100.000001", "user": "U1", "text": "対応しました"},
+            {"ts": "200.000002", "user": "U1", "text": "作業メモ"},
+        ]}
+        args = parse_arguments(["collect", "--user", "U1", "--days", "7",
+                                "--output-dir", str(tmp_path)])
+
+        with patch("qa_pairs.resolve_user_id", return_value="U1"), \
+                patch("qa_pairs.fetch_user_posts", return_value=[_match("200.000002", REPLY), parent]):
+            run_collect(client, args)
+
+        collected = json.loads(next(tmp_path.rglob("collect.json")).read_text())
+        assert [(p["channel_id"], p["thread_ts"]) for p in collected["qa_pairs"]] == [("C1", "100.000001")]
+        assert [p["ts"] for p in collected["standalone_posts"]] == ["100.000001"]
 
 
 # --- format_message ---

@@ -1,7 +1,7 @@
 ---
 name: auto-draft-reply
 description: 指定チャンネルで自分宛てのメンションのうち未回答のものを拾い、qa-pairs の過去の Q&A を根拠に回答案を作る。承認した本文を出すだけで、投稿はしない
-argument-hint: "--channel <ID> --knowledge <qa_pairs.md> [--notes <修正メモ.md>] [--days N]"
+argument-hint: "--channel <ID> [--knowledge <蓄積ファイル.md>] [--notes <修正メモ.md>] [--days N]"
 ---
 
 自分宛てのメンションのうち、メンションより後に本人の返信もリアクションもないものに回答案を作る。
@@ -10,7 +10,9 @@ argument-hint: "--channel <ID> --knowledge <qa_pairs.md> [--notes <修正メモ.
 
 引数:
 - `--channel <ID>`（必須）
-- `--knowledge <path>`（必須）: qa-pairs が作った qa_pairs.md
+- `--knowledge <path>`（任意）: qa-pairs の蓄積ファイル。
+  省略時は `outputs/qa_pairs/$SLACK_USER_ID/knowledge_<channel_id>.md`
+  （なければ qa-pairs を `--channel` 付きで実行するよう伝えて終わる）
 - `--notes <path>`（任意）: 承認時に直した点を書き溜める Markdown。
   省略時は `.claude/skills/auto-draft-reply/notes/<channel_id>.md`。ファイルがなければ作る
   （次回以降も Step 3 で読むため、同じチャンネルでは同じファイルを使い続ける）
@@ -62,6 +64,7 @@ docker run --volume $PWD:/app --volume $PWD/.claude/skills/summarize-thread:/ski
 - `--notes` があれば最初に全部読む。knowledge と食い違うときは notes を優先する
 - 質問からツール名や手続きの語を取り、`--knowledge` を Grep する（例: `LangSmith|Langfuse`）
 - ヒットした行を含む `### ` の組だけを Read の offset/limit で読む（knowledge は 18 万字を超えるため全文は読まない）
+- 読んだ組の見出しの次に `> 更新:` の注記があれば、その判断は覆っている。リンク先の新しい組を読んで根拠にする
 
 ### Step 4: 回答案を作る
 
