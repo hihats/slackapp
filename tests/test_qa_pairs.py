@@ -69,6 +69,13 @@ class TestGroupThreads:
         threads, standalone = group_threads([_match("300.000003", TOP)])
         assert threads == [] and len(standalone) == 1
 
+    def test_thread_parent_is_not_also_standalone(self):
+        """スレッドの親として集めた投稿は、スレッド外の投稿に入らない"""
+        parent_without_query = "https://x.slack.com/archives/C1/p100000001"
+        threads, standalone = group_threads(
+            [_match("200.000002", REPLY), _match("100.000001", parent_without_query)])
+        assert len(threads) == 1 and standalone == []
+
 
 # --- format_message ---
 

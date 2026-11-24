@@ -10,6 +10,11 @@ import re
 # 依頼かどうかは「対応しました」など返信の書き出しで分かる。全文は索引が重くなるため載せない
 OWN_REPLY_HEAD = 100
 SECTIONS = [("answerer", "本人が答えた質問・依頼"), ("asker", "本人の質問・依頼と回答")]
+OTHERS = "その他のスレッド"
+# 質問の本文は複数行で "# 要旨" のような行も含むため、見出しは形ごと照合する
+SECTION_HEADING = re.compile(
+    rf"^## ({'|'.join([title for _, title in SECTIONS] + [OTHERS])})（(\d+) (?:組|件)）$")
+PAIR_HEADING = re.compile(r"^### .+ / \d{4}-\d{2}-\d{2} [\d:]+ （\[リンク\]\(\S+\)）$")
 
 
 def thread_key(pair):
@@ -36,9 +41,10 @@ def _unescape(text):
 
 
 def _escape_headings(text):
-    """行頭の # を \\# にする。"""
-    # 本文の行が、蓄積ファイルを分ける節・組の見出しと取り違えられないようにする
-    return re.sub(r"^#", r"\\#", text, flags=re.MULTILINE)
+    """節・組の見出しと同じ形の行だけ、先頭に \\ を付ける。"""
+    # 行頭の # をすべて変えると、本文のコード例（#!/bin/sh など）まで変わる
+    return "\n".join(f"\\{line}" if SECTION_HEADING.match(line) or PAIR_HEADING.match(line) else line
+                     for line in text.split("\n"))
 
 
 def _index_thread(pair):
@@ -89,7 +95,7 @@ def _render_section(title, pairs):
 def _render_others(pairs):
     lines = [f"- {p['channel_name']} [リンク]({p['permalink']})" for p in pairs]
     body = "\n".join(lines) or "なし"
-    return f"## その他のスレッド（{len(pairs)} 件）\n\n{body}"
+    return f"## {OTHERS}（{len(pairs)} 件）\n\n{body}"
 
 
 def _context_pair(question, post, user_id):

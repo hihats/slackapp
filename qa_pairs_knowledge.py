@@ -8,15 +8,10 @@ Markdown を組（### の見出し）単位でまとめる。
 import re
 from itertools import takewhile
 
-from qa_pairs_markdown import SECTIONS
+from qa_pairs_markdown import PAIR_HEADING, SECTION_HEADING, SECTIONS
 from user_posts import permalink_thread_ts
 
 TITLES = [title for _, title in SECTIONS]
-OTHERS = "その他のスレッド"
-# 質問の本文は複数行で "# 要旨" のような行も含むため、見出しは形ごと照合する
-SECTION_HEADING = re.compile(
-    rf"^## ({'|'.join(TITLES + [OTHERS])})（\d+ (?:組|件)）$")
-PAIR_HEADING = re.compile(r"^### .+ / \d{4}-\d{2}-\d{2} [\d:]+ （\[リンク\]\(\S+\)）$")
 LINK_PART = re.compile(r"（\[リンク\]\((\S+)\)）$")
 # 検索に当たった本人の投稿のリンクなので、取り直すと変わる。スレッドで突き合わせる
 LINK_PATH = re.compile(r"/archives/([^/?]+)/p(\d+)")
@@ -36,15 +31,39 @@ def _blocks(lines):
 
 def _sections(md):
     """節の題 → その節の組のリスト。"""
-    grouped, current = {}, None
-    for line in md.splitlines():
+    grouped, headings, current = {}, [], None
+    # splitlines は U+2028 などでも分け、render のエスケープと行の区切りが食い違う
+    for line in md.split("\n"):
         match = SECTION_HEADING.match(line)
         if match:
             current = match.group(1)
+            headings.append((current, int(match.group(2))))
             grouped[current] = []
         elif current:
             grouped[current].append(line)
-    return {title: _blocks(lines) for title, lines in grouped.items()}
+    sections = {title: _blocks(lines) for title, lines in grouped.items()}
+    _check_counts(headings, sections)
+    return sections
+
+
+def _duplicated(headings):
+    """2 回以上出た節の題。"""
+    titles = [title for title, _ in headings]
+    return {title for title in titles if titles.count(title) > 1}
+
+
+def _miscounted(headings, sections):
+    """見出しの組数と読めた組数が違う節の題。その他のスレッドは組を持たないので除く。"""
+    return {title for title, count in headings
+            if title in TITLES and len(sections[title]) != count}
+
+
+def _check_counts(headings, sections):
+    """節の見出しが重ならず、見出しの組数だけ組を読めたかを確かめる。"""
+    # 本文に見出しと同じ形の行があると組を黙って捨てるため、続けずに止める
+    broken = _duplicated(headings) | _miscounted(headings, sections)
+    if broken:
+        raise ValueError(f"節の見出しと組が合わない: {sorted(broken)}。本文に見出しと同じ形の行がないか確認する")
 
 
 def _key(block):
@@ -104,7 +123,7 @@ def _render(title, sections):
 def _header(md):
     """最初の節の見出しより前（タイトルと収集の記録）の、空でない行。"""
     lines = []
-    for line in md.splitlines():
+    for line in md.split("\n"):
         if SECTION_HEADING.match(line):
             break
         if line.strip():

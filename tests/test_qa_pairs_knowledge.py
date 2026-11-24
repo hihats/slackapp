@@ -1,5 +1,7 @@
 """Tests for qa_pairs_knowledge module"""
 
+import pytest
+
 from qa_pairs_knowledge import merge_knowledge
 from qa_pairs_markdown import render_markdown
 
@@ -61,6 +63,8 @@ class TestMergeKnowledge:
         merged, _ = merge_knowledge(knowledge, _run_md(pair), "期間")
 
         assert "## 本人が答えた質問・依頼（1 組）" in merged
+        assert "取り直した内容" in merged
+        assert "収集時点の内容" not in merged
 
     def test_link_only_change_is_not_reported(self):
         """内容が同じでリンクだけ違う組は、追加・変更した組に入らない"""
@@ -111,6 +115,31 @@ class TestMergeKnowledge:
         assert "## 本人が答えた質問・依頼（0 組）" in merged
         assert "## 本人の質問・依頼と回答（1 組）" in merged
         assert lines[lines.index(note) - 1].startswith("### ")
+
+    def test_section_heading_after_line_separator_does_not_drop_pairs(self):
+        """質問本文で U+2028 の後に節の見出しと同じ文字列があっても、組は消えない"""
+        knowledge = _run_md(_pair("1.000001", "前の組"))
+        run = _run_md(_pair("2.000001", "例: ## 本人が答えた質問・依頼（1 組）"))
+
+        merged, _ = merge_knowledge(knowledge, run, "期間")
+
+        assert "## 本人が答えた質問・依頼（2 組）" in merged
+
+    def test_unescaped_heading_in_old_markdown_stops_merge(self):
+        """エスケープのない旧版の Markdown で、本文に節の見出しと同じ行があると、組を捨てずに止まる"""
+        run = _run_md(_pair("1.000001", "例:\n## 本人が答えた質問・依頼（1 組）"))
+        run = run.replace("\\## ", "## ")
+
+        with pytest.raises(ValueError):
+            merge_knowledge("", run, "期間")
+
+    def test_code_in_question_is_kept_as_is(self):
+        """質問本文のコード例の行（#!/bin/sh など）は書き換えられない"""
+        run = _run_md(_pair("1.000001", "例:\n```\n#!/bin/sh\n# コメント\n```"))
+
+        merged, _ = merge_knowledge("", run, "期間")
+
+        assert "\n#!/bin/sh\n# コメント\n" in merged
 
     def test_note_on_old_pair_survives_replacement(self):
         """差し替えた組でも、古い組の注記は見出しの次の行に残る"""

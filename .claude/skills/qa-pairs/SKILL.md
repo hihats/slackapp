@@ -135,6 +135,8 @@ docker run --volume $PWD:/app slackapp qa_pairs.py context \
      --knowledge outputs/qa_pairs/<user_id>/knowledge_<channel_id>.md --period "<Step 5 と同じ期間>"
    ```
    - 最後に「追加・変更した組」の見出しが出る。0 組なら 3 に進む
+   - 「節の見出しと組が合わない」で止まったら、run の `<markdown>` か蓄積ファイルで、本文中の
+     見出しと同じ形の行の先頭に `\` を付けてやり直す
 2. 覆された判断を探す。追加・変更した組ごとに:
    - その組を読み、ツール名や手続きの語で蓄積ファイルを Grep して、同じ話題の**より古い組**を読む
    - 結論（可否・手順・負担先など）が食い違うものだけを候補にする。補足や言い換えは候補にしない

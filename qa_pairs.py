@@ -103,7 +103,14 @@ def group_threads(matches):
             "thread_ts": thread_ts,
             "permalink": match.get("permalink"),
         })
-    return list(threads.values()), standalone
+    return list(threads.values()), _drop_thread_parents(standalone, threads)
+
+
+def _drop_thread_parents(standalone, threads):
+    """スレッドとして集めた親投稿を、スレッド外の投稿から除く。"""
+    # 親のリンクに thread_ts が付かないと、同じ投稿がスレッドとスレッド外の両方に入る
+    return [m for m in standalone
+            if ((m.get("channel") or {}).get("id"), m.get("ts")) not in threads]
 
 
 def fetch_thread(client, channel_id, thread_ts):
