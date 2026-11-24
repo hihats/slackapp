@@ -41,6 +41,7 @@ docker run --volume $PWD:/app slackapp monthly_message_count.py \
 ### 未回答メンション検出
 
 メンションされた本人が、リアクションも返信もしていない投稿を拾う。
+メンションは search.messages で探すため、親が期間より前のスレッドに来たものも拾える（トークンに `search:read` が要る）。
 スレッド内では、メンションより後の本人の返信だけを回答とみなす。出力の `thread_ts` はスレッドの親の ts（スレッド外なら null）。
 
 ```bash
