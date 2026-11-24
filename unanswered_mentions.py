@@ -11,6 +11,7 @@ from slack_conversations import fetch_all_thread_replies, fetch_channel_history
 from slack_search import (SlackSearchError, build_query, handle_rate_limit,
                           search_all_messages, search_messages)
 from user_posts import permalink_thread_ts
+from cli_args import redact_args
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -437,7 +438,7 @@ def main():
     
     # 引数を解析
     args = parse_arguments()
-    print(f"設定: {args}")
+    print(f"設定: {redact_args(args)}")
     
     # Slack APIクライアントを初期化
     client = initialize_client(args.token)
