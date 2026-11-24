@@ -13,6 +13,7 @@ from PIL import Image
 from positive_words import POSITIVE_WORDS
 
 from slack_search import build_query, search_all_messages
+from cli_args import redact_args
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Slack チャンネルからキーワード検索してワードクラウドを生成します')
@@ -270,7 +271,7 @@ def generate_wordcloud(words, output_file, min_freq=2, positive_boost=1.5):
 
 def main():
     args = parse_arguments()
-    print(args)
+    print(f"設定: {redact_args(args)}")
 
     # Slack APIクライアントを初期化
     client = WebClient(token=args.token)

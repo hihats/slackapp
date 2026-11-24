@@ -7,6 +7,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from slack_conversations import fetch_channel_history
+from cli_args import redact_args
 
 # 定数定義
 INACTIVE_THRESHOLD_DAYS = 365  # 非アクティブと判定する日数
@@ -140,7 +141,7 @@ def main():
     script_start_time = time.time()
     
     args = parse_arguments()
-    print(f"設定: {args}")
+    print(f"設定: {redact_args(args)}")
     
     # Slack APIクライアントを初期化
     client = WebClient(token=args.token)
