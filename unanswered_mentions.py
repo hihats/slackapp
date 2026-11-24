@@ -7,8 +7,10 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import time
 
-from slack_conversations import fetch_all_thread_replies, fetch_channel_history, fetch_thread_replies
-from slack_search import build_query, handle_rate_limit, search_messages
+from slack_conversations import fetch_all_thread_replies, fetch_channel_history
+from slack_search import (SlackSearchError, build_query, handle_rate_limit,
+                          search_all_messages, search_messages)
+from user_posts import permalink_thread_ts
 from cli_args import redact_args
 
 def parse_arguments():
@@ -140,58 +142,48 @@ def get_channels_with_mentions_from_search(client, mentioned_user_id, days_ago, 
     print(f"メンションが見つかったチャンネル数: {len(channels_with_mentions)}")
     return channels_with_mentions
 
+def _mention_query(channel_id, mentioned_user_id, oldest_time):
+    # after: はその日を含まないため 1 日前から検索し、oldest_time で絞り直す
+    start = datetime.fromtimestamp(oldest_time, timezone.utc) - timedelta(days=1)
+    return build_query(channel_id=channel_id, after_date=start.strftime("%Y-%m-%d"),
+                       extra=f"<@{mentioned_user_id}>")
+
+
+def _thread(client, channel_id, thread_ts, threads):
+    """同じスレッドは 1 回だけ取る。"""
+    if thread_ts not in threads:
+        if threads:
+            time.sleep(1.5)  # conversations.replies: Tier 3
+        threads[thread_ts] = fetch_all_thread_replies(
+            client, channel_id, thread_ts, skip_parent=False)
+    return threads[thread_ts]
+
+
+def _original_message(client, channel_id, match, threads):
+    """検索結果にないリアクションや thread_ts を持つ元の投稿を、スレッドから取り直す。"""
+    thread_ts = permalink_thread_ts(match) or match["ts"]
+    replies = _thread(client, channel_id, thread_ts, threads)
+    return next((m for m in replies if m["ts"] == match["ts"]), None)
+
+
+def _mentions_in_period(client, channel_id, matches, oldest_time):
+    threads = {}
+    found = (_original_message(client, channel_id, m, threads)
+             for m in matches if float(m["ts"]) >= oldest_time)
+    return [m for m in found if m]
+
+
 def get_messages_with_mentions(client, channel_id, mentioned_user_id, days_ago):
     """指定したチャンネルから特定のユーザーへのメンションを含むメッセージを取得（スレッド内も含む）"""
-    all_messages = []
-
     oldest_time = (datetime.now(timezone.utc) - timedelta(days=days_ago)).timestamp()
-    mention_pattern = f"<@{mentioned_user_id}>"
-
+    # 履歴からスレッドを開くと、親が期間より前のスレッドに来たメンションを取りこぼすため、検索で拾う
     try:
-        for messages in fetch_channel_history(client, channel_id, oldest=oldest_time):
-            if not messages:
-                break
-
-            # メンションを含むメッセージを抽出
-            mention_messages = [
-                message for message in messages
-                if mention_pattern in message.get("text", "")
-            ]
-            all_messages.extend(mention_messages)
-
-            # スレッドのあるメッセージに対して、スレッド内のメンションもチェック
-            threaded_messages = [
-                message for message in messages
-                if message.get("reply_count", 0) > 0
-            ]
-            thread_mentions = [
-                mention
-                for message in threaded_messages
-                for mention in get_thread_mentions(client, channel_id, message["ts"], mention_pattern, oldest_time)
-            ]
-            all_messages.extend(thread_mentions)
-
-        return all_messages
-
-    except SlackApiError as e:
+        matches = search_all_messages(
+            client, _mention_query(channel_id, mentioned_user_id, oldest_time))
+        return _mentions_in_period(client, channel_id, matches, oldest_time)
+    except (SlackSearchError, SlackApiError) as e:
         print(f"メッセージ取得エラー ({channel_id}): {e}")
         return []
-
-def get_thread_mentions(client, channel_id, thread_ts, mention_pattern, oldest_time):
-    """スレッド内のメンションを含むメッセージを取得"""
-    thread_mentions = []
-
-    try:
-        for replies in fetch_thread_replies(client, channel_id, thread_ts, skip_parent=False):
-            thread_mentions.extend([
-                reply for reply in replies
-                if mention_pattern in reply.get("text", "") and "thread_ts" in reply
-            ])
-
-    except SlackApiError as e:
-        print(f"スレッド取得エラー ({channel_id}, {thread_ts}): {e}")
-
-    return thread_mentions
 
 def _reaction_by(message, user_id):
     """本人が付けたリアクション名を返す。"""
