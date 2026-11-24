@@ -5,6 +5,8 @@ Slack には触らない。Claude が中間 JSON をそのまま読むと、
 JSON の構造の分だけ文脈が埋まるため、ここで整形する。
 """
 
+import re
+
 # 依頼かどうかは「対応しました」など返信の書き出しで分かる。全文は索引が重くなるため載せない
 OWN_REPLY_HEAD = 100
 SECTIONS = [("answerer", "本人が答えた質問・依頼"), ("asker", "本人の質問・依頼と回答")]
@@ -31,6 +33,12 @@ def _unescape(text):
     # html.unescape は本文にそのまま書かれた &copy; などまで変えるため使わない。
     # &amp; を最後に戻すのは、&amp;lt; を < まで戻さないため
     return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _escape_headings(text):
+    """行頭の # を \\# にする。"""
+    # 本文の行が、蓄積ファイルを分ける節・組の見出しと取り違えられないようにする
+    return re.sub(r"^#", r"\\#", text, flags=re.MULTILINE)
 
 
 def _index_thread(pair):
@@ -70,7 +78,7 @@ def _render_pair(pair):
     question = pair["question"]
     answers = "\n".join(_render_answer(a) for a in pair["answers"])
     return (f"### {pair['channel_name']} / {question['datetime']} （[リンク]({pair['permalink']})）\n"
-            f"**Q** <@{question['user']}>: {_unescape(question['text'])}\n\n**A**\n{answers}")
+            f"**Q** <@{question['user']}>: {_escape_headings(_unescape(question['text']))}\n\n**A**\n{answers}")
 
 
 def _render_section(title, pairs):
