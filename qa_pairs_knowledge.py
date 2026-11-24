@@ -8,7 +8,7 @@ Markdown を組（### の見出し）単位でまとめる。
 import re
 from itertools import takewhile
 
-from qa_pairs_markdown import PAIR_HEADING, SECTION_HEADING, SECTIONS
+from qa_pairs_markdown import OTHERS, PAIR_HEADING, SECTION_HEADING, SECTIONS
 from user_posts import permalink_thread_ts
 
 TITLES = [title for _, title in SECTIONS]
@@ -46,6 +46,15 @@ def _sections(md):
     return sections
 
 
+def _knowledge_sections(md):
+    """蓄積ファイルを節に分ける。"""
+    # 蓄積には「その他」の節を書かないため、あれば本文の行を見出しと取り違えている
+    sections = _sections(md)
+    if OTHERS in sections:
+        raise ValueError(f"蓄積ファイルに「{OTHERS}」の見出しがある。本文に見出しと同じ形の行がないか確認する")
+    return sections
+
+
 def _duplicated(headings):
     """2 回以上出た節の題。"""
     titles = [title for title, _ in headings]
@@ -66,9 +75,30 @@ def _check_counts(headings, sections):
         raise ValueError(f"節の見出しと組が合わない: {sorted(broken)}。本文に見出しと同じ形の行がないか確認する")
 
 
+def _url(block):
+    """組の見出しのリンク。"""
+    return LINK_PART.search(block.split("\n")[0]).group(1)
+
+
+def _is_thread(block):
+    return permalink_thread_ts({"permalink": _url(block)}) is not None
+
+
+def _thread_keys(sections):
+    return {_key(block) for blocks in sections.values() for block in blocks if _is_thread(block)}
+
+
+def _drop_duplicated_posts(sections):
+    """スレッドの組と同じキーの、スレッド外の組を除く。"""
+    # 修正前に収集した RUN_DIR では、親投稿がスレッドとスレッド外の投稿の両方に入っている
+    threads = _thread_keys(sections)
+    return {name: [b for b in blocks if _is_thread(b) or _key(b) not in threads]
+            for name, blocks in sections.items()}
+
+
 def _key(block):
     """組の見出しのリンクから (チャンネル ID, スレッドまたは投稿の ts) を取る。"""
-    url = LINK_PART.search(block.splitlines()[0]).group(1)
+    url = _url(block)
     channel_id, p_ts = LINK_PATH.search(url).groups()
     thread_ts = permalink_thread_ts({"permalink": url})
     return channel_id, thread_ts or f"{p_ts[:-6]}.{p_ts[-6:]}"
@@ -159,7 +189,8 @@ def _merge_sections(old, new):
 
 def merge_knowledge(knowledge_md, run_md, period):
     """蓄積ファイルに run の組を積み上げ、結果と追加・差し替えした組の見出しを返す。"""
-    merged, changes = _merge_sections(_sections(knowledge_md), _sections(run_md))
+    merged, changes = _merge_sections(_knowledge_sections(knowledge_md),
+                                      _drop_duplicated_posts(_sections(run_md)))
     # 蓄積が空なら run のタイトルだけ使う（run に収集の記録はない）
     header = (_header(knowledge_md) or _header(run_md)[:1]) + [f"- 収集: {period}"]
     return _render("\n".join(header), merged), changes

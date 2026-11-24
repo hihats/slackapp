@@ -103,14 +103,16 @@ def group_threads(matches):
             "thread_ts": thread_ts,
             "permalink": match.get("permalink"),
         })
-    return list(threads.values()), _drop_thread_parents(standalone, threads)
+    return list(threads.values()), standalone
 
 
-def _drop_thread_parents(standalone, threads):
-    """スレッドとして集めた親投稿を、スレッド外の投稿から除く。"""
-    # 親のリンクに thread_ts が付かないと、同じ投稿がスレッドとスレッド外の両方に入る
+def drop_thread_parents(standalone, pairs):
+    """取得できたスレッドの親投稿を、スレッド外の投稿から除く。"""
+    # 親のリンクに thread_ts が付かないと、同じ投稿がスレッドとスレッド外の両方に入る。
+    # 取得できなかったスレッドの親まで除くと、どちらにも残らない
+    keys = {(pair["channel_id"], pair["thread_ts"]) for pair in pairs}
     return [m for m in standalone
-            if ((m.get("channel") or {}).get("id"), m.get("ts")) not in threads]
+            if ((m.get("channel") or {}).get("id"), m.get("ts")) not in keys]
 
 
 def fetch_thread(client, channel_id, thread_ts):
@@ -220,6 +222,7 @@ def run_collect(client, args):
     threads, standalone = group_threads(fetch_user_posts(client, query))
     print(f"スレッド {len(threads)} 件を取得します（約 {len(threads) * TIER3_INTERVAL:.0f} 秒）")
     pairs = collect_qa_pairs(client, threads, user_id)
+    standalone = drop_thread_parents(standalone, pairs)
 
     data = {
         "user_id": user_id,

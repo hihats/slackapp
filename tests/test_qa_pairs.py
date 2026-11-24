@@ -9,6 +9,7 @@ from slack_sdk.errors import SlackApiError
 from qa_pairs import (
     parse_arguments,
     group_threads,
+    drop_thread_parents,
     format_message,
     build_pair,
     collect_qa_pairs,
@@ -69,12 +70,23 @@ class TestGroupThreads:
         threads, standalone = group_threads([_match("300.000003", TOP)])
         assert threads == [] and len(standalone) == 1
 
-    def test_thread_parent_is_not_also_standalone(self):
-        """スレッドの親として集めた投稿は、スレッド外の投稿に入らない"""
-        parent_without_query = "https://x.slack.com/archives/C1/p100000001"
-        threads, standalone = group_threads(
-            [_match("200.000002", REPLY), _match("100.000001", parent_without_query)])
-        assert len(threads) == 1 and standalone == []
+
+# --- drop_thread_parents ---
+
+PARENT_WITHOUT_QUERY = "https://x.slack.com/archives/C1/p100000001"
+
+
+class TestDropThreadParents:
+    def test_parent_of_fetched_thread_is_dropped(self):
+        """取得できたスレッドの親は、スレッド外の投稿から除く"""
+        parent = _match("100.000001", PARENT_WITHOUT_QUERY)
+        pairs = [{"channel_id": "C1", "thread_ts": "100.000001"}]
+        assert drop_thread_parents([parent], pairs) == []
+
+    def test_parent_of_unfetched_thread_is_kept(self):
+        """取得できなかったスレッドの親は、スレッド外の投稿に残る"""
+        parent = _match("100.000001", PARENT_WITHOUT_QUERY)
+        assert drop_thread_parents([parent], []) == [parent]
 
 
 # --- format_message ---

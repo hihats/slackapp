@@ -43,6 +43,8 @@ def _unescape(text):
 def _escape_headings(text):
     """節・組の見出しと同じ形の行だけ、先頭に \\ を付ける。"""
     # 行頭の # をすべて変えると、本文のコード例（#!/bin/sh など）まで変わる
+    # 保存したファイルを読み直すと \r\n と \r は \n になるため、先にそろえてから見出しと照合する
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     return "\n".join(f"\\{line}" if SECTION_HEADING.match(line) or PAIR_HEADING.match(line) else line
                      for line in text.split("\n"))
 
