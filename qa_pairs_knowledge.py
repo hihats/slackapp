@@ -54,7 +54,10 @@ def _knowledge_sections(md):
         raise ValueError(f"蓄積ファイルに「{OTHERS}」の見出しがある。本文に見出しと同じ形の行がないか確認する")
     # 同じキーの組を差し替えると片方が注記ごと消えるため、どちらを残すかは人に委ねる
     if _has_duplicated_keys(sections):
-        raise ValueError("蓄積ファイルに同じスレッド・投稿の組が 2 つある。片方に注記をまとめ、もう片方を消す")
+        raise ValueError(
+            "蓄積ファイルに同じスレッド・投稿の組が 2 つある。片方に注記をまとめてもう片方を消し、"
+            "消した組があった節の見出しの組数を 1 減らす。"
+            "他の組の注記が消した組のリンクを指していれば、残す組のリンクに付け替える")
     return sections
 
 

@@ -79,7 +79,7 @@ class TestGroupThreads:
 @patch("qa_pairs.time.sleep")
 class TestRunCollect:
     def test_fetched_thread_parent_stays_in_standalone_posts(self, _sleep, _inner_sleep, tmp_path):
-        """スレッドを取得できても、親投稿はスレッド外の投稿として収集結果に残る
+        """取得したスレッドは Q&A の組として保存され、親投稿もスレッド外の投稿として残る
         （Q&A に採るかは後の判定で決まるため）"""
         parent = _match("100.000001", "https://x.slack.com/archives/C1/p100000001")
         client = MagicMock()
@@ -95,6 +95,7 @@ class TestRunCollect:
             run_collect(client, args)
 
         collected = json.loads(next(tmp_path.rglob("collect.json")).read_text())
+        assert [(p["channel_id"], p["thread_ts"]) for p in collected["qa_pairs"]] == [("C1", "100.000001")]
         assert [p["ts"] for p in collected["standalone_posts"]] == ["100.000001"]
 
 
