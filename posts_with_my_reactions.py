@@ -7,6 +7,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import time
 import random
+from cli_args import redact_args
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -156,7 +157,7 @@ def save_to_csv(data, filename):
 
 def main():
     args = parse_arguments()
-    print(args)
+    print(f"設定: {redact_args(args)}")
     
     # Slack APIクライアントを初期化
     client = WebClient(token=args.token)

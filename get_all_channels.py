@@ -4,6 +4,7 @@ import json
 import time
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from cli_args import redact_args
 
 def handle_rate_limit(func, *args, max_retries=5, base_delay=1, **kwargs):
     """レート制限に対応するためのラッパー関数"""
@@ -124,7 +125,7 @@ def main():
     script_start_time = time.time()
     
     args = parse_arguments()
-    print(f"設定: {args}")
+    print(f"設定: {redact_args(args)}")
     
     # Slack APIクライアントを初期化
     client = WebClient(token=args.token)
