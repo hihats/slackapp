@@ -172,6 +172,38 @@ class TestMergeKnowledge:
 
         assert "続き" in merged
 
+    def test_post_is_kept_when_its_thread_is_judged_other(self):
+        """スレッドを「その他」に回しても、親投稿をチャンネル内の回答に採った組は蓄積に残る"""
+        post = {"ts": "3.000001", "datetime": "2026-10-03 10:00:00",
+                "channel_id": "C1", "channel_name": "general", "text": "対応しました",
+                "permalink": "https://x.slack.com/archives/C1/p3000001"}
+        data = {"user_id": "U1", "query": "", "standalone_posts": [post],
+                "qa_pairs": [_pair("3.000001", "対応しました")]}
+        judgement = {"other_threads": ["C1:3.000001"], "channel_context_pairs": [
+            {"post": "C1:3.000001",
+             "question": {"datetime": "2026-10-03 09:00:00", "user": "U2", "text": "先行する依頼"}}]}
+
+        merged, _ = merge_knowledge("", render_markdown(data, judgement, "期間"), "期間")
+
+        assert "## 本人が答えた質問・依頼（1 組）" in merged
+        assert "先行する依頼" in merged
+
+    def test_knowledge_with_duplicated_pair_stops_merge(self):
+        """蓄積に同じスレッド・投稿の組が 2 つあると、注記を捨てずに止まる"""
+        post = {"ts": "3.000001", "datetime": "2026-10-03 10:00:00",
+                "channel_id": "C1", "channel_name": "general", "text": "回答",
+                "permalink": "https://x.slack.com/archives/C1/p3000001"}
+        data = {"user_id": "U1", "query": "", "standalone_posts": [post],
+                "qa_pairs": [_pair("3.000001", "スレッドの質問", role="asker")]}
+        judgement = {"channel_context_pairs": [
+            {"post": "C1:3.000001",
+             "question": {"datetime": "2026-10-03 09:00:00", "user": "U2", "text": "直前の質問"}}]}
+        # 修正前の merge が作った、同じキーの組が 2 節にある蓄積
+        knowledge = render_markdown(data, judgement, "期間").split("\n## その他のスレッド")[0]
+
+        with pytest.raises(ValueError):
+            merge_knowledge(knowledge, _run_md(), "期間")
+
     def test_code_in_question_is_kept_as_is(self):
         """質問本文のコード例の行（#!/bin/sh など）は書き換えられない"""
         run = _run_md(_pair("1.000001", "例:\n```\n#!/bin/sh\n# コメント\n```"))

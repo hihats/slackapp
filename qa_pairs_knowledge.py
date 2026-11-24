@@ -52,7 +52,15 @@ def _knowledge_sections(md):
     sections = _sections(md)
     if OTHERS in sections:
         raise ValueError(f"蓄積ファイルに「{OTHERS}」の見出しがある。本文に見出しと同じ形の行がないか確認する")
+    # 同じキーの組を差し替えると片方が注記ごと消えるため、どちらを残すかは人に委ねる
+    if _has_duplicated_keys(sections):
+        raise ValueError("蓄積ファイルに同じスレッド・投稿の組が 2 つある。片方に注記をまとめ、もう片方を消す")
     return sections
+
+
+def _has_duplicated_keys(sections):
+    keys = [_key(block) for blocks in sections.values() for block in blocks]
+    return len(keys) != len(set(keys))
 
 
 def _duplicated(headings):

@@ -1,5 +1,6 @@
 """Tests for qa_pairs module"""
 
+import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -9,12 +10,12 @@ from slack_sdk.errors import SlackApiError
 from qa_pairs import (
     parse_arguments,
     group_threads,
-    drop_thread_parents,
     format_message,
     build_pair,
     collect_qa_pairs,
     fetch_preceding,
     new_run_dir,
+    run_collect,
 )
 
 PARENT = "https://x.slack.com/archives/C1/p100000001?thread_ts=100.000001&cid=C1"
@@ -71,22 +72,30 @@ class TestGroupThreads:
         assert threads == [] and len(standalone) == 1
 
 
-# --- drop_thread_parents ---
-
-PARENT_WITHOUT_QUERY = "https://x.slack.com/archives/C1/p100000001"
+# --- run_collect ---
 
 
-class TestDropThreadParents:
-    def test_parent_of_fetched_thread_is_dropped(self):
-        """取得できたスレッドの親は、スレッド外の投稿から除く"""
-        parent = _match("100.000001", PARENT_WITHOUT_QUERY)
-        pairs = [{"channel_id": "C1", "thread_ts": "100.000001"}]
-        assert drop_thread_parents([parent], pairs) == []
+@patch("slack_conversations.time.sleep")
+@patch("qa_pairs.time.sleep")
+class TestRunCollect:
+    def test_fetched_thread_parent_stays_in_standalone_posts(self, _sleep, _inner_sleep, tmp_path):
+        """スレッドを取得できても、親投稿はスレッド外の投稿として収集結果に残る
+        （Q&A に採るかは後の判定で決まるため）"""
+        parent = _match("100.000001", "https://x.slack.com/archives/C1/p100000001")
+        client = MagicMock()
+        client.conversations_replies.return_value = {"ok": True, "messages": [
+            {"ts": "100.000001", "user": "U1", "text": "対応しました"},
+            {"ts": "200.000002", "user": "U1", "text": "作業メモ"},
+        ]}
+        args = parse_arguments(["collect", "--user", "U1", "--days", "7",
+                                "--output-dir", str(tmp_path)])
 
-    def test_parent_of_unfetched_thread_is_kept(self):
-        """取得できなかったスレッドの親は、スレッド外の投稿に残る"""
-        parent = _match("100.000001", PARENT_WITHOUT_QUERY)
-        assert drop_thread_parents([parent], []) == [parent]
+        with patch("qa_pairs.resolve_user_id", return_value="U1"), \
+                patch("qa_pairs.fetch_user_posts", return_value=[_match("200.000002", REPLY), parent]):
+            run_collect(client, args)
+
+        collected = json.loads(next(tmp_path.rglob("collect.json")).read_text())
+        assert [p["ts"] for p in collected["standalone_posts"]] == ["100.000001"]
 
 
 # --- format_message ---
